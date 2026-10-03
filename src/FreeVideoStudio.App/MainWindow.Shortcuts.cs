@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,6 +22,8 @@ public partial class MainWindow
     {
         if (Controls.PhaseOverlayControl.FightInputActive) return;
 
+        // KEYFOCUS_01 — text inputs own the keyboard while focused (TextBox / NumericUpDown /
+        // ComboBox): suspend hotkeys without touching e.Handled.
         if (KeyboardFocusPolicy.HotkeysSuspended(TopLevel.GetTopLevel(this)))
             return;
 
@@ -37,11 +42,26 @@ public partial class MainWindow
     {
         if (Controls.PhaseOverlayControl.FightInputActive) return;
 
+        // KEYFOCUS_01 — text inputs own the keyboard while focused; hotkeys are suspended and
+        // the control keeps its key (no e.Handled).
         if (KeyboardFocusPolicy.HotkeysSuspended(TopLevel.GetTopLevel(this)))
         {
             return;
         }
 
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_04 — DOCUMENT SHORTCUTS. Ctrl+S / Ctrl+Shift+S / Ctrl+O / Ctrl+Z / Ctrl+Y.
+        //
+        // Until this block the main window had NO Ctrl+Z at all. Trims, cuts, memes and the music
+        // bed are all decided here, and none of them could be taken back — while the Granular
+        // editor and the Crop tool each had their own private undo. It also had no Save: the
+        // entire .fvsproj document model existed in Core, fully tested, and was unreachable from
+        // the UI, so closing the window discarded the session.
+        //
+        // Placed BEFORE the '?' sheet test so a modifier chord is never swallowed by a plain-key
+        // handler further down. Each arm sets e.Handled, because a Ctrl+S that also reaches the
+        // transport would toggle playback while saving.
+        // ══════════════════════════════════════════════════════════════════════════════════
         if (_projectSession != null && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             switch (e.Key)
@@ -63,6 +83,10 @@ public partial class MainWindow
                     _projectSession.Undo();
                     return;
 
+                // Both spellings of redo. Ctrl+Y is the Windows convention and is what 04
+                // §6 UI-GRANULAR specifies; Ctrl+Shift+Z is what users arriving from other
+                // editors reach for first, and a shortcut that silently does nothing reads as
+                // a broken undo rather than a missing redo.
                 case Key.Y:
                 case Key.Z when e.KeyModifiers.HasFlag(KeyModifiers.Shift):
                     e.Handled = true;
@@ -79,6 +103,8 @@ public partial class MainWindow
             {
                 if (!sheet.IsVisible) BuildShortcutSheetRows();
                 sheet.IsVisible = !sheet.IsVisible;
+                // KEYFOCUS_01 — park focus on the window root while the sheet is up so the
+                // root-focus requirement below is satisfiable and no control eats the keys.
                 if (sheet.IsVisible) Focus();
                 RuntimeLog.Info("UI", $"Keyboard shortcut sheet {(sheet.IsVisible ? "opened" : "closed")}.");
                 e.Handled = true;
@@ -86,6 +112,8 @@ public partial class MainWindow
             }
             if (sheet.IsVisible && e.Key == Key.Escape)
             {
+                // KEYFOCUS_01 — Escape does not close dialogs unless the window root itself
+                // holds focus; any focused control keeps the key.
                 if (KeyboardFocusPolicy.HotkeysSuspended(TopLevel.GetTopLevel(this))) return;
                 var sheetFocus = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
                 if (sheetFocus is null or MainWindow)
@@ -102,6 +130,12 @@ public partial class MainWindow
             }
         }
 
+        // THUMB_01 — THE TWO MODIFIERS WERE THE WRONG WAY ROUND.
+        //
+        // Plain arrow used to mean one frame and Shift/Ctrl meant ten, so the unmodified key — the
+        // one you press to hunt for a shot — crawled, and the modified one was the only way to
+        // cover ground. Reversed: a bare arrow glides, and SHIFT is the precision gear that steps
+        // exactly one frame. Ctrl is kept as a synonym for Shift for anyone with the old habit.
         if (_isThumbnailMarkerSelected && _thumbnailSet && e.Key is Key.Left or Key.Right)
         {
             bool precise = e.KeyModifiers.HasFlag(KeyModifiers.Shift) || e.KeyModifiers.HasFlag(KeyModifiers.Control);
@@ -145,6 +179,7 @@ public partial class MainWindow
 
         if (playPause.Matches(e))
         {
+            // KEYFOCUS_01 — one command path shared with PlayPauseButton and its KeyBinding.
             if (TryExecutePlayPause()) e.Handled = true;
         }
         else if (_isMusicBlockFocused && _musicWizardResult != null && (e.Key == Key.Left || e.Key == Key.Right))
@@ -216,6 +251,8 @@ public partial class MainWindow
         }
         else if (markStart.Matches(e))
         {
+            // KEYFOCUS_01 — transport gestures execute the same commands the buttons and their
+            // KeyBindings use (no synthesized Click events).
             if (_markStartCommand?.CanExecute(null) == true)
             {
                 _markStartCommand.Execute(null);
@@ -232,6 +269,12 @@ public partial class MainWindow
         }
     }
 
+    // ============================================================
+    // KEYFOCUS_01 — transport commands (PlayPause / MarkStart / MarkEnd).
+    // The buttons raise them on click, the per-button Avalonia Input.KeyBindings raise them
+    // while the button (or its subtree) holds focus, and the global gesture dispatcher above
+    // raises them for the bound hotkeys — one command, three entry points.
+    // ============================================================
 
     private FreeVideoStudio.App.ViewModels.RelayCommand? _playPauseCommand;
     private FreeVideoStudio.App.ViewModels.RelayCommand? _markStartCommand;
@@ -255,6 +298,18 @@ public partial class MainWindow
     {
         if (Controls.PhaseOverlayControl.FightInputActive) return false;
 
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // DOUBLEFIRE_01 — ONE PHYSICAL PRESS MUST PRODUCE ONE TOGGLE.
+        //
+        // A toggle is the one control shape where a duplicate activation is INVISIBLE: it undoes
+        // itself, so the button simply "does nothing" and the fault looks like a playback bug
+        // rather than a wiring bug. That cost several rounds of diagnosis (see DOUBLEFIRE_01 in
+        // MainWindow.Wireup.cs), so the duplicate wiring is removed AND this guard makes any
+        // future recurrence say so in the log instead of silently cancelling the user's press.
+        //
+        // ⚠️ This is a safety net, NOT a licence to wire a second activation path. If this line
+        // ever appears in a log, find the duplicate and delete it — do not rely on the guard.
+        // ══════════════════════════════════════════════════════════════════════════════════
         var now = DateTime.UtcNow;
         if ((now - _lastTransportToggleUtc).TotalMilliseconds < TransportToggleCoalesceMs)
         {
@@ -277,6 +332,8 @@ public partial class MainWindow
 
         if (ActiveVideoHost?.IpcClient != null)
         {
+            // MAINEND_01 — one transport for the button, the KeyBinding and the global shortcut,
+            // so no route can get trapped on the last frame while another does not.
             RuntimeLog.Info("UI", "User toggled Play/Pause state.");
             TogglePlayPauseTransport();
             return true;

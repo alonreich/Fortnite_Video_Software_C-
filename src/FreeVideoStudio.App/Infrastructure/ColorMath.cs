@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using Avalonia.Media;
 
 namespace FreeVideoStudio.App.Infrastructure;
@@ -77,11 +80,16 @@ internal static class ColorMath
         var (h, sat, _) = RgbToHsv(r, g, b);
         double lum = RelativeLuminance(r, g, b);
 
+        // A near-neutral region has no meaningful complement — the hue is numerical noise and would
+        // flicker as the average shifted. Red is the defined default for exactly this case.
         double hue = sat < 0.12 ? 0.0 : (h + 180.0) % 360.0;
         double value = lum > 0.45 ? 0.20 : 1.00;
 
         Color candidate = HsvToColor(hue, 1.0, value);
 
+        // Last check on the numbers rather than on the theory: if the complement still does not
+        // separate (a mid-luminance, mid-saturation wash), fall back to flat black or flat white,
+        // which always does.
         double candidateLum = RelativeLuminance(candidate.R, candidate.G, candidate.B);
         double ratio = (Math.Max(candidateLum, lum) + 0.05) / (Math.Min(candidateLum, lum) + 0.05);
         if (ratio < 3.0)

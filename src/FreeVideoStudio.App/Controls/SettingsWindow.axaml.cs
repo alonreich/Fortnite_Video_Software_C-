@@ -1,4 +1,7 @@
-﻿using Avalonia;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -33,7 +36,6 @@ public partial class SettingsWindow : Window
     private string _pendingVideoEncoder = "Auto";
     private ThemeMode _pendingThemeMode = ThemeMode.FollowOS;
     private FontScale _pendingFontScale = FontScale.Normal;
-    private AudioFixPrompt _pendingLoudnessPrompt = AudioFixPrompt.NeverApply;
     private AudioFixPrompt _pendingPeakPrompt = AudioFixPrompt.Ask;
 
     /// <summary>VOPROT_02 — pending voice-protection policy, applied on APPLY like the two above.</summary>
@@ -61,7 +63,6 @@ public partial class SettingsWindow : Window
             EnableFadeBehavior = SettingsManager.Instance.Defaults.EnableFadeBehavior,
             QualityIndex = SettingsManager.Instance.Defaults.QualityIndex,
             QualityBehavior = SettingsManager.Instance.Defaults.QualityBehavior,
-            AutoVoiceNormalization = SettingsManager.Instance.Defaults.AutoVoiceNormalization,
             AutoSpikeFlattening = SettingsManager.Instance.Defaults.AutoSpikeFlattening,
             AudioProtection = SettingsManager.Instance.Defaults.AudioProtection,
             RememberMusicVolumes = SettingsManager.Instance.Defaults.RememberMusicVolumes,
@@ -71,7 +72,6 @@ public partial class SettingsWindow : Window
 
         _pendingThemeMode = SettingsManager.Instance.ThemeMode;
         _pendingFontScale = SettingsManager.Instance.FontScale;
-        _pendingLoudnessPrompt = SettingsManager.Instance.LoudnessNormalizationPrompt;
         _pendingPeakPrompt = SettingsManager.Instance.PeakFlatteningPrompt;
         _pendingVoiceProtectGame = SettingsManager.Instance.VoiceProtectGameMode;
         _pendingVoiceProtectMusic = SettingsManager.Instance.VoiceProtectMusicMode;
@@ -88,6 +88,7 @@ public partial class SettingsWindow : Window
         BuildVideoEncoderUi();
         BuildAppearanceUi();
         BuildMemeFolderUi();
+        BuildOutputFilesUi();
 
         ConfirmVideoMergerRemove = SettingsManager.Instance.ConfirmVideoMergerRemove;
         ConfirmVideoMergerClearAll = SettingsManager.Instance.ConfirmVideoMergerClearAll;
@@ -96,9 +97,9 @@ public partial class SettingsWindow : Window
         ConfirmGranularDeleteSegment = SettingsManager.Instance.ConfirmGranularDeleteSegment;
         ConfirmGranularClearAll = SettingsManager.Instance.ConfirmGranularClearAll;
         ConfirmMainAppCancel = SettingsManager.Instance.ConfirmMainAppCancel;
-        ConfirmMainAppCut = SettingsManager.Instance.ConfirmMainAppCut;
+        ConfirmMainAppCut = SettingsManager.Instance.ConfirmMainAppCut;   // CUT_01
         ConfirmMainAppSwitchTool = SettingsManager.Instance.ConfirmMainAppSwitchTool;
-        KeepOverlayTextBetweenVideos = SettingsManager.Instance.KeepOverlayTextBetweenVideos;
+        KeepOverlayTextBetweenVideos = SettingsManager.Instance.KeepOverlayTextBetweenVideos;   // CAPTIONWIPE_01
         ConfirmVoiceOverDeleteTake = SettingsManager.Instance.ConfirmVoiceOverDeleteTake;
         ConfirmFinishedDialogExit = SettingsManager.Instance.ConfirmFinishedDialogExit;
         AutoUpdateChecks = SettingsManager.Instance.AutoUpdateChecks;
@@ -123,17 +124,22 @@ public partial class SettingsWindow : Window
         get => _pendingDefaults.RememberMusicVolumes;
         set => _pendingDefaults.RememberMusicVolumes = value;
     }
-    public bool AutoVoiceNormalization
-    {
-        get => _pendingDefaults.AutoVoiceNormalization;
-        set => _pendingDefaults.AutoVoiceNormalization = value;
-    }
-    /// <summary>AUDIO_09 — master switch for sidechain ducking AND EQ carving.</summary>
+    /// <summary>AUDIO_09 — legacy master switch; kept in sync with the two switches below.</summary>
     public bool AudioProtection
     {
         get => _pendingDefaults.AudioProtection;
         set => _pendingDefaults.AudioProtection = value;
     }
+
+    /// <summary>
+    /// DUCKSTRENGTH_01 — the "Music vs. game sound" switches and handles, bound in the XAML as
+    /// <c>Mix.*</c>. Seeded from settings when the window is built; written back on Save.
+    /// </summary>
+    public FreeVideoStudio.App.ViewModels.MixProtectionViewModel Mix { get; } = new(
+        SettingsManager.Instance.Defaults.DuckingEnabled,
+        SettingsManager.Instance.Defaults.CarvingEnabled,
+        SettingsManager.Instance.Defaults.DuckingStrength,
+        SettingsManager.Instance.Defaults.CarvingStrength);
 
     public bool AutoSpikeFlattening
     {
@@ -287,6 +293,8 @@ public partial class SettingsWindow : Window
             };
         }
 
+        // VOPROT_02 — option order IS VoiceProtectionMode's declaration order
+        // (RememberLastChoice / AlwaysOn / AlwaysOff), so the index is the enum value.
         var protectGame = this.FindControl<ComboBox>("VoiceProtectGameComboBox");
         if (protectGame != null)
         {
@@ -520,6 +528,9 @@ public partial class SettingsWindow : Window
         panel.Children.Add(MakeValueBehaviorRow("Default Speed", _pendingDefaults.SpeedBehavior, v => _pendingDefaults.SpeedBehavior = v, speedNum));
 
         var qCombo = new ComboBox { Width = 150, HorizontalAlignment = HorizontalAlignment.Right };
+        // QUALITY_01 — the list is the quality ladder, not a column of megabyte figures. The
+        // setting names the LOOK a new project starts with; the size it works out to depends on
+        // that project's length and is shown live under the dial on the main screen.
         var qItems = new List<string>();
         foreach (var tier in FreeVideoStudio.App.ViewModels.QualityLadder.Tiers) qItems.Add(tier.Name);
         qCombo.ItemsSource = qItems;
@@ -557,6 +568,18 @@ public partial class SettingsWindow : Window
         };
         panel.Children.Add(MakeSimpleRow("Default Freeze Duration", freezeCombo));
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // CAPTIONWIPE_01 — "Leave text from Video to Video".
+        //
+        // Built here in code rather than written into the AXAML because this whole tab is built in
+        // code (see the "Speed Editor" heading a few rows up); a static CheckBox declared in the
+        // AXAML would land ABOVE every row this method appends, which is not where it belongs.
+        //
+        // The tooltip is deliberately written for someone who has never heard the word "overlay".
+        // It names the thing by where they can SEE it ("the words you type across the top"), states
+        // what happens with the box off, states what happens with it on, and says which one is
+        // normal — in that order, because that is the order the question forms in the reader's head.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         panel.Children.Add(new TextBlock
         {
             Text = "Text Caption",

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/07_UNDO_AND_HISTORY.md, docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -58,7 +61,7 @@ public partial class GranularSpeedEditorWindow
 
     /// <summary>UNDO_25 — normalised identity for the clip this editor is editing.</summary>
     private string HistoryKey =>
-        string.IsNullOrWhiteSpace(_videoPath) || IsMergeMode ? string.Empty : Path.GetFullPath(_videoPath).ToUpperInvariant();
+        string.IsNullOrWhiteSpace(_videoPath) || IsMergeMode ? string.Empty : Path.GetFullPath(_videoPath).ToUpperInvariant();   // MERGEEDIT_02
 
     /// <summary>
     /// UNDO_25 — takes back the history this clip had when its editor was last closed.
@@ -76,6 +79,8 @@ public partial class GranularSpeedEditorWindow
         _redoStack.Clear();
         _redoStack.AddRange(parked.Redo);
 
+        // U2 — the ceiling is re-applied on adoption. A cap enforced only on push is a cap that a
+        // second code path can walk straight past.
         while (_undoStack.Count > MaxUndoDepth) _undoStack.RemoveAt(0);
         while (_redoStack.Count > MaxUndoDepth) _redoStack.RemoveAt(0);
 

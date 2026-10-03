@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/07_UNDO_AND_HISTORY.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -46,6 +49,7 @@ public sealed class UndoSidecarStoreTests : IDisposable
         return stack;
     }
 
+    // ── The point of the whole class ────────────────────────────────────────────────────────
 
     /// <summary>
     /// UNDO_24 — §4's actual promise: history survives an app restart. Before the sidecar existed,
@@ -87,6 +91,7 @@ public sealed class UndoSidecarStoreTests : IDisposable
         Assert.Single(loaded!.Redo);
     }
 
+    // ── Refusals — all of which mean "start empty" ──────────────────────────────────────────
 
     [Fact]
     public void NoSidecarIsNotAnError()
@@ -136,6 +141,7 @@ public sealed class UndoSidecarStoreTests : IDisposable
         Assert.Null(NewStore().Load(_projectPath, "fp-1"));
     }
 
+    // ── Identity and bounds ─────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// UNDO_24 — two projects called <c>montage.fvsproj</c> in two folders are two projects.
@@ -178,6 +184,7 @@ public sealed class UndoSidecarStoreTests : IDisposable
         Assert.NotNull(loaded);
         Assert.Equal(UndoSidecarStore.MaxEntries, loaded!.Undo.Count);
 
+        // Trimmed from the OLDEST end, matching U2 — the newest steps are the ones a user reaches.
         Assert.Equal($"edit {UndoSidecarStore.MaxEntries + 25}", loaded.Undo[^1].Label);
     }
 

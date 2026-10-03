@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using FreeVideoStudio.Core.Infrastructure;
@@ -44,7 +47,7 @@ public class UserScopeTests : IDisposable
         Assert.False(File.Exists(Path.Combine(User, "recovery_v2.json")));
         Assert.False(Directory.Exists(Path.Combine(User, "logs")));
         Assert.False(Directory.Exists(Path.Combine(User, "voiceovers")));
-        Assert.True(File.Exists(Path.Combine(Legacy, "settings.json")));
+        Assert.True(File.Exists(Path.Combine(Legacy, "settings.json")));   // legacy untouched
     }
 
     [Fact]
@@ -58,7 +61,7 @@ public class UserScopeTests : IDisposable
         Assert.Equal("mine", File.ReadAllText(Path.Combine(User, "settings.json")));
 
         File.WriteAllText(Path.Combine(Legacy, "late.json"), "x");
-        Assert.False(ApplicationPaths.MigrateLegacyMachineRoot(User, Legacy));
+        Assert.False(ApplicationPaths.MigrateLegacyMachineRoot(User, Legacy));   // marker present
         Assert.False(File.Exists(Path.Combine(User, "late.json")));
     }
 

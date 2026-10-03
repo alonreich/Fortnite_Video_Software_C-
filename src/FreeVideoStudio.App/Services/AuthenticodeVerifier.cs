@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -87,6 +90,7 @@ internal static unsafe partial class AuthenticodeVerifier
         Rejected
     }
 
+    // ── WinVerifyTrust constants (wintrust.h) ────────────────────────────────────────────────
     private const uint WTD_UI_NONE = 2;
     private const uint WTD_REVOKE_NONE = 0;
     private const uint WTD_CHOICE_FILE = 1;
@@ -124,7 +128,7 @@ internal static unsafe partial class AuthenticodeVerifier
         public uint dwUIChoice;
         public uint fdwRevocationChecks;
         public uint dwUnionChoice;
-        public nint pUnion;
+        public nint pUnion;            // pFile, for dwUnionChoice == WTD_CHOICE_FILE
         public uint dwStateAction;
         public nint hWVTStateData;
         public nint pwszURLReference;
@@ -165,7 +169,8 @@ internal static unsafe partial class AuthenticodeVerifier
         }
         catch (Exception ex)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            // A missing wintrust.dll or a blocked entry point is NOT a pass.
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return new SignatureInfo(false, false, string.Empty, string.Empty,
                 $"Trust provider unavailable ({ex.GetType().Name}: {ex.Message}).");
         }
@@ -179,6 +184,12 @@ internal static unsafe partial class AuthenticodeVerifier
         {
             try
             {
+                // AOTSAFETY_05 / SYSLIB0057: the obsoletion directs callers to
+                // X509CertificateLoader, which loads certificate FILES. It has no equivalent for
+                // extracting an embedded signer certificate from a signed PE, which is what this
+                // call does and what SYS-SIGNING needs. Suppressed for this one statement, with
+                // the reason recorded, rather than project-wide — revisit if .NET ships a
+                // replacement for reading Authenticode signers.
 #pragma warning disable SYSLIB0057
                 using X509Certificate signer = X509Certificate.CreateFromSignedFile(filePath);
 #pragma warning restore SYSLIB0057
@@ -187,8 +198,11 @@ internal static unsafe partial class AuthenticodeVerifier
             }
             catch (Exception ex)
             {
+                // Signed per the trust provider, but the certificate could not be read back. Treat
+                // as unusable rather than as a pass — a publisher we cannot name is not a publisher
+                // we can compare.
                 chainValid = false;
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 return new SignatureInfo(false, true, string.Empty, string.Empty,
                     $"Signature present but the signer certificate could not be read ({ex.GetType().Name}: {ex.Message}).");
             }
@@ -210,6 +224,7 @@ internal static unsafe partial class AuthenticodeVerifier
 
         if (!anchor.ChainValid || string.IsNullOrWhiteSpace(anchor.Subject))
         {
+            // Unsigned (or unverifiable) distribution. There is nothing to pin to.
             detail = $"The running build is not signed ({anchor.Detail}), so the update cannot be checked against a publisher.";
             return TrustVerdict.NoAnchor;
         }
@@ -291,7 +306,7 @@ internal static unsafe partial class AuthenticodeVerifier
                 Guid closeAction = GenericVerifyV2;
                 try { WinVerifyTrust(nint.Zero, ref closeAction, ref data); } catch (System.Exception swallowed)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                 }
             }
 

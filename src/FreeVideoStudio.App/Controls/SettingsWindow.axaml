@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:FreeVideoStudio.App.Controls"
         x:CompileBindings="True"
@@ -54,7 +54,50 @@
                                     <TextBlock Text="Video Merger" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
                                     <CheckBox Name="MergerThumbnailScraperCheckBox" Content="Thumbnail Scraper" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding MergerThumbnailScraper, Mode=TwoWay}"
                                               ToolTip.Tip="When merging, cut the short cover-picture intro that this app adds to every export from the 2nd clip onward, so the joined video has no flashes between clips. The first clip keeps its intro unless you pick a custom thumbnail in the merger." />
+                                    <!-- CLIPLEVEL_01 — per-clip loudness matching in the Merger export. -->
+                                    <CheckBox Name="MergerMatchClipLoudnessCheckBox" Content="Even out the volume between clips" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding MergerMatchClipLoudness, Mode=TwoWay}"
+                                              ToolTip.Tip="When merging, measure every clip and bring the quiet and loud ones toward the middle (at most 12 dB), so the merged video does not jump in volume from one clip to the next. Off: every clip keeps its recorded volume." />
                                 </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <!-- OUTNAME_01 / ISSUE_04 — where each tool saves finished videos and how they are named. -->
+                        <TabItem Header="Output Files">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="10" Spacing="10" HorizontalAlignment="Left" MaxWidth="660">
+                                    <TextBlock Text="Saved Videos" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize13}" Text="Choose where finished videos are saved and how they are named. Each video gets the name you type plus the next free number, so nothing is ever overwritten. Leave the folder on 'Downloads' to use your Windows Downloads folder." />
+
+                                    <TextBlock Text="Main App" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <TextBlock Text="Save folder:" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}"/>
+                                    <TextBox Name="MainOutputFolderTextBox" IsReadOnly="True" Text="{Binding MainOutputFolderDisplay}" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Where the Main App saves finished videos."/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button Name="ChangeMainOutputFolderBtn" Click="OnChangeMainOutputFolder" Classes="Primary" Content="CHANGE FOLDER..." MinWidth="150" Cursor="Hand" ToolTip.Tip="Pick the folder the Main App saves finished videos into."/>
+                                        <Button Name="ResetMainOutputFolderBtn" Click="OnResetMainOutputFolder" Classes="Secondary" Content="USE DOWNLOADS" MinWidth="150" Cursor="Hand" ToolTip.Tip="Go back to saving into your Windows Downloads folder."/>
+                                    </StackPanel>
+                                    <TextBlock Text="File name:" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <TextBox Name="MainOutputBaseNameTextBox" Text="{Binding MainOutputBaseNameText, Mode=TwoWay}" MinWidth="300" MaxLength="80" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="The name in front of the number. Example: FreeVideoStudio gives FreeVideoStudio-1.mp4, FreeVideoStudio-2.mp4 ..."/>
+                                        <Button Name="ResetMainOutputBaseNameBtn" Click="OnResetMainOutputBaseName" Classes="Secondary" Content="DEFAULT" MinWidth="100" Cursor="Hand" ToolTip.Tip="Restore the default name."/>
+                                    </StackPanel>
+                                    <TextBlock Name="MainOutputNamePreviewText" Text="{Binding MainOutputNamePreview}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"/>
+
+                                    <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,10,0,0"/>
+
+                                    <TextBlock Text="Video Merger" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <TextBlock Text="Save folder:" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}"/>
+                                    <TextBox Name="MergerOutputFolderTextBox" IsReadOnly="True" Text="{Binding MergerOutputFolderDisplay}" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="Where the Video Merger saves merged videos."/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button Name="ChangeMergerOutputFolderBtn" Click="OnChangeMergerOutputFolder" Classes="Primary" Content="CHANGE FOLDER..." MinWidth="150" Cursor="Hand" ToolTip.Tip="Pick the folder the Video Merger saves merged videos into."/>
+                                        <Button Name="ResetMergerOutputFolderBtn" Click="OnResetMergerOutputFolder" Classes="Secondary" Content="USE DOWNLOADS" MinWidth="150" Cursor="Hand" ToolTip.Tip="Go back to saving into your Windows Downloads folder."/>
+                                    </StackPanel>
+                                    <TextBlock Text="File name:" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize12}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <TextBox Name="MergerOutputBaseNameTextBox" Text="{Binding MergerOutputBaseNameText, Mode=TwoWay}" MinWidth="300" MaxLength="80" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppPanelBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" ToolTip.Tip="The name in front of the number. Example: Merged-Videos gives Merged-Videos-1.mp4, Merged-Videos-2.mp4 ..."/>
+                                        <Button Name="ResetMergerOutputBaseNameBtn" Click="OnResetMergerOutputBaseName" Classes="Secondary" Content="DEFAULT" MinWidth="100" Cursor="Hand" ToolTip.Tip="Restore the default name."/>
+                                    </StackPanel>
+                                    <TextBlock Name="MergerOutputNamePreviewText" Text="{Binding MergerOutputNamePreview}" Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"/>
+                                    <TextBlock Name="OutputFilesStatusText" Text="{Binding OutputFilesStatus}" Foreground="{DynamicResource AppWarningBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
@@ -69,7 +112,7 @@
                                     <!-- ===== 1. What happens to the video's own sound ===== -->
                                     <TextBlock Text="Your Video's Sound" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" />
                                     <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap" FontSize="{DynamicResource AppFontSize12}"
-                                               Text="When you upload a video the app checks for sudden bursts of extreme sound. The video's original recorded volume is kept completely untouched." />
+                                               Text="Your video keeps its original recorded volume. When you upload a video the app checks it for sudden bursts of extreme sound, and every export is protected by a safety limiter that stops the sound from ever clipping (always on)." />
 
                                     <TextBlock Text="Sudden loud moments" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
                                     <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"
@@ -77,18 +120,12 @@
                                     <ComboBox Name="PeakPromptComboBox" MinWidth="340" HorizontalAlignment="Left" Margin="0,4,0,0"
                                               ToolTip.Tip="Choose whether the app asks before softening sudden loud moments."/>
 
-                                    <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Master switch: allow softening of sudden loud moments" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,8,0,0" IsChecked="{Binding AutoSpikeFlattening, Mode=TwoWay}" ToolTip.Tip="Turn this off and sudden loud moments are never softened, even if you answer YES to the warning." />
+                                    <CheckBox Name="AutoSpikeFlatteningCheckbox" Content="Master switch: allow softening of sudden loud moments (the safety limiter stays on either way)" Foreground="{DynamicResource AppTextMutedBrush}" Margin="0,8,0,0" IsChecked="{Binding AutoSpikeFlattening, Mode=TwoWay}" ToolTip.Tip="Turn this off and sudden loud moments are never softened, even if you answer YES to the warning." />
 
                                     <Separator Background="{DynamicResource AppBorderBrush}" Height="1" Margin="0,14,0,0"/>
 
                                     <!-- ===== 2. Voice over ===== -->
                                     <TextBlock Text="Voice Over" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
-                                    <CheckBox Name="AutoVoiceNormalizationCheckbox" Content="Match my recorded voice to the game's volume" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="Keeps your voice sitting at the same level as the gameplay instead of being much louder or quieter than it." IsChecked="{Binding AutoVoiceNormalization, Mode=TwoWay}" />
-                                    <!-- AUDIO_09: moved here from a per-export button in Music Wizard phase 3. It is a
-                                         set-once preference, and phase 3 could not demonstrate its effect anyway (the
-                                         preview does not simulate ducking). Default ON; OFF removes ALL protection. -->
-                                    <CheckBox Name="AudioProtectionCheckbox" Content="Protect game sounds from the music (ducking + smooth blend)" Foreground="{DynamicResource AppTextMutedBrush}" ToolTip.Tip="ON: the music automatically steps back whenever gunshots or game sounds get loud, and its frequencies are shaped so the two do not clash. OFF: the music plays at a fixed level over everything and your game sounds get no protection at all." IsChecked="{Binding AudioProtection, Mode=TwoWay}" />
-
                                     <!-- VOPROT_02: the two Voice Over Studio protection checkboxes start ON and are
                                          remembered between projects. These two lists decide WHO owns that decision:
                                          the studio (remember what I picked), or this screen (always / never). On an
@@ -112,6 +149,65 @@
                                     <!-- ===== 3. Background music ===== -->
                                     <TextBlock Text="Background Music" FontSize="{DynamicResource AppFontSize16}" FontWeight="Bold" Foreground="{DynamicResource AppTextPrimaryBrush}" Margin="0,10,0,0" />
                                     <CheckBox Name="RememberVolumesCheckbox" Content="Remember the music and video volumes I set last time" Foreground="{DynamicResource AppTextMutedBrush}" IsChecked="{Binding RememberMusicVolumes, Mode=TwoWay}" ToolTip.Tip="Save and recall the music/video volume levels you selected last time." />
+
+                                    <!-- DUCKSTRENGTH_01 — Music vs. game sound: two switches + two strength handles (styled like
+                                         the Music Wizard's MIX rack). The handles start in the MIDDLE = the tuned out-of-the-box
+                                         value; whole steps only, and each step changes the effect by the same small amount
+                                         (SidechainCompressNode.RatioFor), so nothing ever jumps. Remembered in settings. -->
+                                    <TextBlock Text="Music vs. game sound" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,14,0,0"/>
+                                    <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap"
+                                               Text="When your video has background music, the app can stop the music from hiding your game sounds. Turn each helper on or off, and slide its handle up for stronger or down for gentler. The middle is the normal setting."/>
+                                    <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,6,0,0" MaxWidth="640" HorizontalAlignment="Left">
+                                    <Border Grid.Column="0" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
+                                            BorderThickness="1" CornerRadius="4" Padding="0,4,0,4" ClipToBounds="False" Margin="0,0,0,0"
+                                            ToolTip.Tip="How much the music steps back when the game gets loud.&#x0a;&#x0a;Middle = normal (recommended).&#x0a;Up = the music gets quieter during loud game moments.&#x0a;Down = the music stays louder.">
+                                        <Grid RowDefinitions="Auto,*,Auto" ClipToBounds="False">
+                                            <TextBlock Grid.Row="0" Text="DUCK" HorizontalAlignment="Center" FontWeight="Bold"
+                                                       Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" IsHitTestVisible="False"/>
+                                            <TextBlock Grid.Row="2" Name="DuckingStrengthLabel" Text="{Binding Mix.DuckingLabel}" HorizontalAlignment="Center"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" IsHitTestVisible="False"/>
+                                            <!-- SLIDER_07/09: no Width, slider painted last, labels not hit-testable. -->
+                                            <Slider Grid.Row="1" Name="DuckingStrengthSlider" Classes="CompactSlider" Orientation="Vertical"
+                                                    Minimum="0" Maximum="100" Value="{Binding Mix.DuckingStrength, Mode=TwoWay}"
+                                                    TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="5"
+                                                    MinHeight="130" HorizontalAlignment="Center" VerticalAlignment="Stretch" ClipToBounds="False"
+                                                    IsEnabled="{Binding Mix.DuckingEnabled}"/>
+                                        </Grid>
+                                    </Border>
+                                    <Border Grid.Column="1" Background="{DynamicResource AppSurfaceBrush}" BorderBrush="{DynamicResource AppBorderBrush}"
+                                            BorderThickness="1" CornerRadius="4" Padding="0,4,0,4" ClipToBounds="False" Margin="-1,0,0,0"
+                                            ToolTip.Tip="How much room the music makes for game sounds and voices.&#x0a;&#x0a;Middle = normal (recommended).&#x0a;Up = game sounds come through clearer.&#x0a;Down = the music keeps more of its own sound.">
+                                        <Grid RowDefinitions="Auto,*,Auto" ClipToBounds="False">
+                                            <TextBlock Grid.Row="0" Text="CARVE" HorizontalAlignment="Center" FontWeight="Bold"
+                                                       Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" IsHitTestVisible="False"/>
+                                            <TextBlock Grid.Row="2" Name="CarvingStrengthLabel" Text="{Binding Mix.CarvingLabel}" HorizontalAlignment="Center"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}" FontSize="{DynamicResource AppFontSize10}" IsHitTestVisible="False"/>
+                                            <!-- SLIDER_07/09: no Width, slider painted last, labels not hit-testable. -->
+                                            <Slider Grid.Row="1" Name="CarvingStrengthSlider" Classes="CompactSlider" Orientation="Vertical"
+                                                    Minimum="0" Maximum="100" Value="{Binding Mix.CarvingStrength, Mode=TwoWay}"
+                                                    TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="5"
+                                                    MinHeight="130" HorizontalAlignment="Center" VerticalAlignment="Stretch" ClipToBounds="False"
+                                                    IsEnabled="{Binding Mix.CarvingEnabled}"/>
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Grid.Column="2" Margin="14,0,0,0" Spacing="4" VerticalAlignment="Top">
+                                        <CheckBox Name="DuckingEnabledCheckbox" Content="Volume ducking" IsChecked="{Binding Mix.DuckingEnabled, Mode=TwoWay}"
+                                                  Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                  ToolTip.Tip="Leave this ON.&#x0a;&#x0a;When something loud happens in your game (a shot, a shout, a crash), the music gets quieter for a moment so you can hear it. Then the music comes back.&#x0a;&#x0a;OFF: the music stays at the same volume all the time."/>
+                                        <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" Margin="28,0,0,6"
+                                                   Text="The music gets quieter when the game gets loud. Handle: DUCK."/>
+                                        <CheckBox Name="CarvingEnabledCheckbox" Content="EQ carving" IsChecked="{Binding Mix.CarvingEnabled, Mode=TwoWay}"
+                                                  Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                  ToolTip.Tip="Leave this ON.&#x0a;&#x0a;Music and game sounds often use the same kind of sound, so they blur together. This makes a little space in the music, only while the game is making noise, so voices and game sounds stay clear.&#x0a;&#x0a;OFF: the music is never changed."/>
+                                        <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize11}" TextWrapping="Wrap" Margin="28,0,0,6"
+                                                   Text="The music makes room so game sounds and voices stay clear. Handle: CARVE."/>
+                                        <Button Name="ResetMixStrengthsBtn" Content="Back to normal" Classes="Secondary" HorizontalAlignment="Left" Cursor="Hand"
+                                                Command="{Binding Mix.ResetCommand}"
+                                                ToolTip.Tip="Puts both handles back in the middle (the normal setting)."/>
+                                        <TextBlock Foreground="{DynamicResource AppTextMutedBrush}" FontSize="{DynamicResource AppFontSize10}" FontStyle="Italic" TextWrapping="Wrap"
+                                                   Text="You hear the result in the main preview after the Music Wizard closes, and in every export."/>
+                                    </StackPanel>
+                                    </Grid>
 
                                     <TextBlock Text="Music (mp3) Folder" Foreground="{DynamicResource AppTextPrimaryBrush}" FontWeight="SemiBold" Margin="0,10,0,0"/>
                                     <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5" MaxWidth="700">

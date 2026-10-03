@@ -14,11 +14,14 @@
 | `src/FreeVideoStudio.Core/Media/GpuCapabilityProbe.cs` | `GpuCapabilityProbe` | `Probe`, `Result`, `IGpuCapabilityProbe`, `WindowsGpuCapabilityProbe` | PREVIEW GPU check only (D3D11 device, feature level, real adapter; logs RDP) — hardware vs CPU software preview. Does not test encoders. |
 | `src/FreeVideoStudio.Core/Media/HardwareScanner.cs` | `HardwareScanner` | `ScanFailed`, `ScanSharedAsync`, `ScanAsync`, `HardwareScanner` | Boot encoder scan: one-frame test encode per encoder (NVIDIA → AMD → INTEL); result shared suite-wide. |
 | `src/FreeVideoStudio.Core/Media/GranularSpeedBuilder.cs` | `GranularSpeedBuilder`, `ChunkSpec` | `Build`, `BuildAtempoChain`, `HighChunkCountWarnThreshold`, `SpliceFadeSec` | Filtergraph chunk splitter, setpts/atempo chain compiler, and freeze pad synthesis. |
+| `src/FreeVideoStudio.Core/Media/AudioTempoFilterBuilder.cs` | `AudioTempoFilterBuilder`, `AudioTempoEngine` | `Build`, `Segment`, `EngineFor`, `BuildAtempoChain`, `EnsureProbedAsync`, `HelpListsRequiredOptions`, `RubberbandOptions` | TEMPO_01 — the one audio tempo policy for every export route (Rubber Band below 1.0x when verified, else atempo). |
+| `src/FreeVideoStudio.Core/Media/CornerMemeOverlayGraph.cs` | `CornerMemeOverlayGraph`, `CornerMemeInput`, `CornerMemeOverlayResult` | `Build`, `InputArgs` | MEMEMODE_01 — corner-overlay memes over a running stream (Main App export + Merger effects clips), zero added duration. |
 | `src/FreeVideoStudio.Core/Media/MobileFilterBuilder.cs` | `MobileFilterBuilder` | `Build`, `LayerSpec`, `MobileFilterBuilder` | 9:16 portrait video transform, background extrusion, and HUD positioning. |
 | `src/FreeVideoStudio.Core/Media/ZoomPreviewSimulator.cs` | `ZoomPreviewSimulator`, `Result` | `Compute`, `ZoomPreviewSimulator`, `struct` | CPU/GPU live zoom simulation matching export filtergraph parity. |
 | `src/FreeVideoStudio.Core/Media/AiTrajectorySmoother.cs` | `AiTrajectorySmoother`, `AiTrackingKeyframe`, `SmoothedTrajectory` | `SmoothTrajectory`, `ToJson`, `FromJson` | Universal AI tracking trajectory interpolation and dynamic zoom keyframe generation. **⚠ CO-GOVERNED BY: 01**|
 | `src/FreeVideoStudio.App/Services/GeminiTrackingService.cs` | `GeminiTrackingService` | `TrackSubjectAsync`, `PostWithRetryAsync` | Gemini Vision model dispatch and inline MP4 tracking payload generation. **⚠ CO-GOVERNED BY: 01, 04, 05**|
 | `src/FreeVideoStudio.App/Infrastructure/MemePreviewDirector.cs` | `MemePreviewDirector` | `IsActive`, `SetMemes`, `NotifySeek`, `Tick` | Live preview cutaway playback coordination and libmpv loadfile director. |
+| `src/FreeVideoStudio.Core/Media/OutputFileNaming.cs` | `OutputFileNaming` | `Sanitize`, `NumberedFileName`, `MainDefaultBaseName`, `MergerDefaultBaseName`, `MainRecoveredPrefix`, `OUTNAME_01` | User-editable automatic export file names for both tools. |
 | `src/FreeVideoStudio.Core/Media/MergerWorker.cs` | `MergerWorker` | `CancelledMessage`, `Cancel`, `RunAsync`, `Dispose` | Multi-clip concatenation, CFR resampling, and duration-weighted bitrate calculation. |
 | `src/FreeVideoStudio.Core/Media/TextOverlayGenerator.cs` | `TextOverlayGenerator` | `WrapText`, `GeneratePng`, `TextOverlayGenerator` | High-DPI title text bitmap generation for top-void rendering. |
 | `src/FreeVideoStudio.Core/Media/FfmpegDiagnosticCollector.cs` | `FfmpegDiagnosticCollector` | `AddStderrLine`, `GetDiagnosticLines`, `GetTailLines`, `ExplicitErrorCode` | Export failure classification and diagnostic report generation. |
@@ -35,11 +38,12 @@
 | `src/FreeVideoStudio.Core/Media/CompositeTimeline.cs` | `CompositeTimeline`, `CompositeClip` | `Build`, `TotalOutputSec`, `ClipsOutputSec`, `MergedSecToBodyOutputSec`, `MemeAtRelSec`, `MergeFps` | COMPOSITE_01 — the Merger's one time mapper (output length, frame counts, music by output time). **⚠ CO-GOVERNED BY: 01**|
 | `src/FreeVideoStudio.Core/Media/MergeEdl.cs` | `MergeEdl`, `EdlClip`, `EdlEffects`, `EdlMeme`, `EdlMusic` | `Clips`, `BaseSpeed`, `ToJson`, `FromJson` | The Merger's edit list read by `MergerWorker.Edl`. **⚠ CO-GOVERNED BY: 01, 06**|
 | `src/FreeVideoStudio.Core/Media/MergeClipGraph.cs` | `MergeClipGraph`, `MergeMemeInput`, `MergeClipGraphResult` | `Build` | MERGEGRAPH_01 — one Merger clip with granular effects and memes. **⚠ CO-GOVERNED BY: 01**|
-| `src/FreeVideoStudio.Core/Media/MemeLoudness.cs` | `MemeLoudness` | `GainDbAsync`, `GainFor`, `Chain` | MEMELEVEL_01 — Merger meme loudness gain + limiter. **⚠ CO-GOVERNED BY: 02**|
+| `src/FreeVideoStudio.Core/Media/MemeLoudness.cs` | `MemeLoudness` | `MeasureLufsAsync`, `GainFor`, `Chain`, `SpliceFade` | MEMELEVEL_02 — meme matched to the gameplay it interrupts (both apps); SPLICE_03 de-click fades. **⚠ CO-GOVERNED BY: 02**|
+| `src/FreeVideoStudio.Core/Media/AudioGraphPruner.cs` | `AudioGraphPruner` | `Prune` | PREVIEWMIX_01 — the export graph's audio half, for the preview. **⚠ CO-GOVERNED BY: 02**|
 | `src/FreeVideoStudio.Core/Media/MusicPadAlignment.cs` | `MusicPadAlignment` | `Align` | MUSICPAD_01 — shifts Main App music by the fade-in pad. **⚠ CO-GOVERNED BY: 01, 02**|
 | `src/FreeVideoStudio.Core/Media/HardwareCapability.cs` | `HardwareCapability`, `HardwareCapabilityCache` | `Detect`, `LoadCached`, `Persist`, `SchemaVersion` (1) | Cached hardware acceleration capabilities profile and encoder feature levels. |
-| `src/FreeVideoStudio.App/MemeCatalog.cs` | `MemeCatalog`, `MemeItem` | `Discover`, `AllMemes`, `GetById` | Shipped and user meme asset catalog indexing and lookup. |
-| `src/FreeVideoStudio.App/Infrastructure/MemeAssets.cs` | `MemeAssets` | `ResolvePath`, `EnsureExtracted` | Embedded meme video asset unpacking and filesystem caching. |
+| `src/FreeVideoStudio.App/MemeCatalog.cs` | `MemeCatalog`, `MemeItem`, `MemeCategory` | `ScanAsync`, `SyncMemesAsync`, `SyncSongsFromCloudAsync`, `CloudMemeFolder`, `ExtensionsFor` | Meme folder scan/probe and the cloud delta-sync from the single repository `meme/` folder (MEMEFOLDER_01, MEMESYNC_01..03). |
+| `src/FreeVideoStudio.App/Infrastructure/MemeAssets.cs` | `MemeAssets` | `StarterFiles`, `DeliverStarter`, `SongCategory`, `MemeCategoryFolder`, `DefaultsToStart` | First-run delivery of the shipped starter songs and memes (STARTER_01, STARTERLIST_01). |
 
 ---
 
@@ -84,7 +88,7 @@
 
 ## 3. Concat Framing & Sizing  {#FFM-CONCAT}
 * **CFR Normalization:** The Merger resamples every clip and meme to 60 fps CFR (`fps=60`) before concat. The Main App resamples speed chunks, intro and memes to `fps={targetFps}`; `ProcessWorker` sets `targetFps = "60"`, so both apps currently export 60 fps.
-* **Merger speed — two routes:** a clip WITHOUT effects gets `setpts=PTS/{speed}` + an `atempo` chain (steps kept within 0.5–2.0); a clip WITH effects goes through the granular engine (`MergeClipGraph` → `GranularSpeedBuilder.Build`, MERGEGRAPH_01).
+* **Merger speed — two routes:** a clip WITHOUT effects gets `setpts=PTS/{speed}` + the TEMPO_01 audio tempo filter (§3a FFM-TEMPO); a clip WITH effects goes through the granular engine (`MergeClipGraph` → `GranularSpeedBuilder.Build`, MERGEGRAPH_01).
 * **Merger Bitrate (100%):**
   * Target video bitrate (`-b:v`) is the duration-weighted average of all input streams, clamped to 800–100 000 kbps (`OutputFileSize.MergerTargetKbps`):
     $$\text{Bitrate}_{\text{target}} = \frac{\sum (D_i \times B_i)}{\sum D_i}$$
@@ -100,15 +104,54 @@
 
 ---
 
+## 3a. Audio Tempo Policy (TEMPO_01)  {#FFM-TEMPO}
+* **One builder, every route.** `AudioTempoFilterBuilder` is the ONLY place a tempo filter is spelled. Main App base speed (`ProcessWorker`), every granular chunk (`GranularSpeedBuilder.Build`), Merger plain clips (`MergerWorker`) and Merger effects clips (`MergeClipGraph` → `GranularSpeedBuilder.Build`) all call `AudioTempoFilterBuilder.Segment`. The rendered preview mix (PREVIEWMIX_01) runs the same `ProcessWorker`, so it hears the same engine. `GranularSpeedBuilder.BuildAtempoChain` is now a forwarder to the atempo-only fallback, kept for the gates that check atempo's element bounds. `AudioTempoFilterBuilderTests.NoExportRouteSpellsATempoFilterItself` enforces this.
+* **Policy:**
+  | Rate | Filter |
+  | :--- | :--- |
+  | 1.0x | none (AVSYNC_01) |
+  | < 1.0x, capability present | `rubberband=tempo={s:F4}:transients=mixed` |
+  | < 1.0x, capability absent or unknown | the atempo chain (0.5 steps, then the remainder) |
+  | > 1.0x | the atempo chain, unchanged (2.0 steps, then the remainder) |
+  Impossible rates (≤ 0, NaN, ∞) fall back to 1.0x, loudly (ISSUE_04); others are clamped to 0.01–100 (both filters' range).
+* **Capability probe (once per FFmpeg binary, cached for the process).** `EnsureProbedAsync(_ffmpegPath)` runs at the start of `ProcessWorker.RunAsync` and `MergerWorker.RunAsync`, before any graph is built: (1) `ffmpeg -hide_banner -h filter=rubberband` must list `tempo`, `transients` and `mixed` — the exact syntax emitted; (2) a 0.25 s 440 Hz tone must pass through `rubberband=tempo=0.5000:transients=mixed` with exit code 0. Any failure, timeout or exception = ABSENT (atempo). Never probed (unit tests, gates) = ABSENT, so an unprobed graph is the old, always-valid one. The bundled build (`N-119166-g1e5c65f539-20250408`, `--enable-librubberband`) carries the option table: tempo, pitch, transients (crisp/mixed/smooth), detector, phase, window, smoothing, formant, pitchq, channels.
+* **Why `transients=mixed` (measured on a reference BtbN build with an identical option table; 48 kHz).** Steady 440 Hz tone, zero-crossing pitch / off-band floor: default `crisp` 437.4 Hz / -12 dB at 0.5x (0.3–0.6 % flat at every slowdown) — rejected; `mixed` 440.00 Hz at 0.25/0.5/0.75x; `smooth` 440.00 Hz / -56 dB but a percussive hit's 10–90 % rise grew to 59 ms at 0.25x (crisp/mixed 10–11 ms). Game audio is mostly transients, so `mixed`.
+* **Duration and splices are owned by the callers, after the tempo filter.** Granular chunks: tempo → `apad,atrim=duration={quantised}` → SPLICE_01 fade. Merger plain clips: tempo → clip loudness → CLIPFRAMES_01 `apad,atrim=end=` → SPLICE_03 fade. Measured unbounded output: rubberband exact at 0.25–4x; atempo up to 1 % short (0.25x: 15.84 s of 16 s). Graph `finalDuration` is identical with either engine.
+* **Timing (measured, not compensated).** Energy-centroid offset of a 1 kHz burst vs prediction: rubberband `mixed` within ±20 ms with ±0.6 ms spread across hits; atempo -10…-50 ms (0.75x…0.25x) with up to ±11 ms spread. No compensation filter is added.
+* **Speed-ups keep atempo:** no measurement justified a change (TEMPO_01 policy).
+* **Not in this policy:** the live mpv preview players use mpv's own `speed`; music is never tempo-changed (MUSICSYNC_02).
+* **GPU route:** `rubberband` is in `ExportVideoPipeline`'s CPU audio-filter table, so a slowdown does not push the video off the resident CUDA route.
+
+---
+
 ## 4. Meme Concat Architecture  {#FFM-MEMECONCAT}
 * **Aspect Normalization:** Memes are never cropped. Each is fitted inside the OUTPUT canvas and padded with black (`scale={canvas}:force_original_aspect_ratio=decrease,pad={canvas}:(ow-iw)/2:(oh-ih)/2`). Main App canvas: 1080 x 1920 in portrait, else the source resolution rounded down to even; Merger: 1080 x 1920 or 1920 x 1080.
 * **Even Dimensions:** Main App meme frames then pass `scale=w=floor(iw/2)*2:h=floor(ih/2)*2,format=yuv420p,setsar=1`.
-* **Meme Loudness:** A meme with sound is measured and gets gain = TargetLufs − measured (clamped), then `alimiter=limit=-2.0dB` (Main App; Merger: MEMELEVEL_01).
+* **Meme Loudness (MEMELEVEL_02):** A meme with sound gets gain = measured gameplay − measured meme (clamped -24…+12 dB; either unmeasured → as recorded), no per-meme limiter (the always-on safety limiter covers the mix), and 8 ms de-click fades on both sides of the splice (SPLICE_03). Same in the Main App and the Merger — see `02_AUDIO_ENGINE_MASTERING.md` AUD-MASTERING.
 * **Silent Meme Audio Synthesis:** Memes lacking audio streams inject synthesized silence (`anullsrc` at 48kHz stereo) for the exact duration of the meme.
 * **Still Image Looping:** Static image memes (`.png`, `.jpg`, `.jpeg`) are looped at the export frame rate:
   ```cmd
   -loop 1 -framerate {targetFps} -t 4.0 -i "{memePath}"
   ```
+
+---
+
+## 4a. Corner Overlay Memes (MEMEMODE_01)  {#FFM-MEMECORNER}
+* **Full screen = the existing splice/concat path (§4). Corner = an `overlay` over the running stream.** `ProcessWorker` resolves every placement and routes corner overlays into `cornerMemes`; `memes` (and so the meme cuts, `MemeTimeInsertedBefore` for music and voice-over, the end-pad rule, the timing tag and the preview-mix map) holds ONLY full-screen memes, so a corner meme can never shift anything.
+* **Where:** Main App — on `[v_render_out]` (intro + body, final canvas: 1080×1920 portrait, else the even source size) and the matching audio, BEFORE full-screen memes are spliced in. Merger — on each effects clip's body (`[c{i}_body_v]`/`[c{i}_body_a]`), before its full-screen memes (`MergeClipGraph` step 3b, canvas = the merge canvas).
+* **Graph (`CornerMemeOverlayGraph.Build`), per meme with visible interval [S,E):**
+  ```text
+  [m:v]trim=duration={E-S},setpts=PTS-STARTPTS,fps={fps}:round=near,
+       scale={B}:{B}:force_original_aspect_ratio=decrease,scale=w=floor(iw/2)*2:h=floor(ih/2)*2,setsar=1,
+       format=yuva420p,setpts=PTS+S/TB[ov]
+  [main][ov]overlay=x={X}:y={Y}:eof_action=pass:enable='between(t,S,E)'
+  sound on:  [m:a]atrim=duration={E-S},…,{MEMELEVEL_02 gain}{SPLICE_03 fades},adelay=delays={S·1000}:all=1
+             [main_a][m_a…]amix=inputs=n+1:normalize=0:duration=first:dropout_transition=0
+  ```
+  B = round(min(W,H)·{0.30 | 0.42 | 0.55}) (Small/Medium/Large, even), margin = round(min(W,H)·0.03); X/Y = margin or `W-w-margin` / `H-h-margin` by corner (`MemeOverlayLayout`, shared with every preview).
+* **Zero added duration, by construction:** the stream is the main input of every `overlay` (`eof_action=pass`) and the first input of the `amix` (`duration=first`). Harness (reference FFmpeg): 10 s main + 4 s meme at 3–7 s → 10.000 s, 600 frames; meme pixels only inside the window.
+* **Inputs** follow the full-screen meme inputs (images `-loop 1 -framerate F -t D`); the preview-mix render (PREVIEWMIX_01) opens the same slots, so the corner meme's sound is heard in the preview mix.
+* **Sound off** (`PlaySound=false`): no audio chain (a full-screen meme with sound off gets silence of its length).
 
 ---
 
@@ -118,6 +161,7 @@
   2. Plays meme media until its duration expires.
   3. libmpv issues `loadfile` restoring gameplay footage paused at the exact anchor frame.
 * **Player Loop Guard:** UI tick loop skips execution while `MemePreviewDirector.IsActive` is `true`.
+* **Full screen only (MEMEMODE_01):** `SetMemes` ignores corner overlays. Those are drawn by `CornerMemeOverlayPresenter` over the video host on the host's GAMEPLAY clock — never a pause, seek or `loadfile` — and hidden while a cutaway is active (04 UI-MEMESELECT).
 * **Directional Trigger:** Scrubbing over an anchor frame holds gameplay still; cutaways trigger on forward playback only.
 * **Companion Audio Muting (MEME_07):** The meme carries its OWN sound. While `IsActive` is `true`, the background music bed and EVERY voice-over take PAUSE, and resume the moment gameplay returns. This follows structurally from the host tick early-returning — but it is a hard requirement, not a side effect: without it the game audio, the meme audio, the voice-over and the music all play simultaneously in preview.
 * **Global Property Save/Restore:** Four mpv globals survive `loadfile` and are saved and restored around every cutaway: `speed` (forced to `1.0` — a meme inside a 2x block would otherwise preview at 2x and export at 1x), `video-crop` and `vf` (a zoom crop belongs to the gameplay; the export splices the meme UNCROPPED), and `image-display-duration` (a still meme would otherwise flash past in mpv's default 1s instead of holding its 4s).
@@ -145,7 +189,7 @@ Render progress tracking is cost-weighted across sequential phases and must be m
 ```
 
 * **Phase Allocation:**
-  * **Phase 1 (Audio Loudness Analysis):** Omitted (`willAnalyzeAudio = false`); encoding starts directly at 0%.
+  * **Phase 1 (Audio Peak Analysis):** a quick measurement of the exported range (only when the peak tamer is on or a meme has sound; cached), labelled "Analyzing Audio Peaks"; encoding still starts at 0%. No normalization pass exists (LOUDSTD_REMOVED_01).
   * **Phase 2 (Video & Filtergraph Encoding):** 0% - 96% (cost-weighted for dynamic zoom, CAS sharpening, speed segments, and mobile crops)
   * **Phase 3 (Muxing & Thumbnail Generation):** 96% - 100%
 * **Monotonic Invariant:**
@@ -273,6 +317,23 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
 
 ---
 
+## 8c. Automatic Output File Names  {#FFM-OUTNAME}
+* **`OUTNAME_01` — one editable base name per tool.** `ProcessWorker.OutputBaseName` and
+  `MergerWorker.OutputBaseName` come from `AppSettings.MainOutputBaseName` (default
+  `FreeVideoStudio`) and `AppSettings.MergerOutputBaseName` (default `Merged-Videos`), edited in
+  Settings › Output Files (`04` UI-SETTINGS-ABOUT). The finished file is
+  `OutputFileNaming.NumberedFileName(base, N)` = `<base>-<N>.mp4`, N = first free index from 1.
+  The Main App still RESERVES the name (OUTPATH_01); the Merger keeps its existence scan.
+* **The base name is user input in a path.** Both workers re-run `OutputFileNaming.Sanitize`
+  (defence in depth): invalid file-name characters and separators become `_`, control characters
+  are dropped, leading spaces/dots and trailing dots/spaces/dashes/underscores are trimmed,
+  reserved device names (`CON`, `NUL`, `COM1`…) and empty results fall back to the default, and
+  the length is clamped to 80. A bad setting can never fail an export or leave its folder.
+* **Rescued renders keep fixed prefixes** (`FreeVideoStudio-RECOVERED-`, `Merged-Videos-RECOVERED-`,
+  RESCUE_01) so the user and the crash digest can always tell which tool produced them.
+
+---
+
 ## 9. Production Binary Discovery Hierarchy  {#FFM-BINPATH}
 * **Strict Search Order:** `BinaryPathResolver.Resolve(name, "backend", "binaries")` (used by `ProcessWorker`, `MergerWorker`, `EncoderManager` and the App) checks, from the exe's folder (`Environment.ProcessPath`, else `AppContext.BaseDirectory`), and stops at the first hit:
   1. `backend\` — **ALWAYS PROBED FIRST.**
@@ -286,14 +347,20 @@ With **no video loaded at all**, the size readout shows an em dash, never a zero
 ---
 
 ## 10. Centralized Meme Library, Probe & Cloud Delta Sync  {#FFM-MEMELIB}
-* **Default Asset Directory:**
+* **Default Asset Directory (MEMEFOLDER_02):**
   ```text
-  %USERPROFILE%\Videos\Free Video Studio\Memes
+  %USERPROFILE%\Videos\FreeVideoStudio\Memes
   ```
-  Resolved via `Environment.SpecialFolder.MyVideos + @"\Free Video Studio\Memes"`, overridable in global settings.
+  Resolved via `MemeDirectory.GetDefault()` = `MyVideos\` + `ApplicationPaths.AppDirectoryName` + `\Memes`, overridable in global settings. Folder names never contain spaces (NOSPACE_01, `05` SYS-NOSPACE).
+  * **Move of the old default:** builds before MEMEFOLDER_02 used `Videos\Free Video Studio\Memes`. `MemeDirectory.EnsureLegacyDefaultMigrated` runs once per process INSIDE `GetActive()` (so no caller ever sees a half-moved folder) and moves every file into the new folder. Never overwrites: an identical duplicate in the old folder is deleted, a different same-named file stays in the old folder and is logged. Empty old folders are removed. A Settings override pointing AT the old default is cleared; any other custom folder is untouched. The move is appended to `migration-paths.json` (UPGRADE_05), and the recovery restore paths call `MigrationPathResolver.ResolveSavedFile`, so projects and recovery files that name a meme by its old full path still open it.
 * **Boot Scan Contract:** Scans `.mp4`, `.mkv`, `.avi`, `.png`, `.jpg`, `.jpeg` (`MemeCatalog`) and **SKIPS 0-byte files**. Each survivor is probed for native dimensions and its aspect ratio (Width / Height) is computed and cached for the portrait validation rule in `04_UI_UX_AVALONIA_SPEC.md` §10 (UI-MEMESELECT).
 * **Directory Management:** Settings exposes the path plus `Open Folder` / `Change Folder`. A change updates global config and triggers a re-scan; an `UnauthorizedAccessException` reverts the path in a try-catch rather than leaving the app pointed at an unreadable folder.
-* **Dynamic Cloud Retrieval (Delta Sync):** `"Download more memes..."` in the meme selector opens a confirmation dialog, then enumerates the public Git provider's directory contents over its API. **Only files MISSING locally are downloaded** — a full re-pull is forbidden. The selector refreshes on completion.
+* **Dynamic Cloud Retrieval (Delta Sync):** `"Download more meme videos..."` / `"Download more meme pictures..."` in the meme selector and the `⬇ More videos` / `⬇ More pictures` buttons in the meme picker open a confirmation dialog, then list the repository folder. **Only files MISSING locally (or present only as an LFS pointer / 0 bytes) are downloaded** — a full re-pull is forbidden. Every open meme list refreshes on completion through `MemeDirectory.NotifyChanged`.
+  * **One repository folder (MEMEFOLDER_01):** all memes live in `meme/` (`MemeCatalog.CloudMemeFolder`); the former `mp4/` and `jpeg/` folders are gone. `MemeCategory.Video` / `MemeCategory.Image` (MEMECAT_01) filter that folder by extension (`MemeCatalog.ExtensionsFor`). Clients older than MEMEFOLDER_01 get a "not found" error and must update.
+  * **Listing (MEMESYNC_01):** `GET api.github.com/repos/{owner}/{repo}/git/trees/HEAD:meme` — up to 100,000 entries with blob sizes. The contents API it replaced stopped at 1,000 entries with no paging.
+  * **A failed listing is an error (MEMESYNC_02):** 404 → "The online library could not be found. Update Free Video Studio…"; 403/429 → rate-limit message; any other status → error. It is never reported as "you already have everything".
+  * **LFS first (MEMESYNC_03):** a blob of at most 1,024 bytes is an LFS pointer, so it is fetched from `media.githubusercontent.com/media/{owner}/{repo}/HEAD/meme/{name}` first, otherwise from `raw.githubusercontent.com/{owner}/{repo}/HEAD/meme/{name}`; the other host is the fallback (`media.` answers 404 for a non-LFS file). A result that is still a pointer or empty counts as a failure. Downloads land in `{name}.part` and are renamed only when complete.
+* **Starter set (STARTER_01 / STARTERLIST_01):** the installer ships `starter\meme` (both Robert De Niro versions — Landscape and Portrait — plus the Trump and "I will find you" clips and the three pictures) and `starter\mp3`. `MemeAssets.StarterFiles` and `Staging.StarterMeme` must list the same names (`MemeLibraryTests.StarterListsMatchTheStagingLists`); a missing file halts staging. Delivery happens once (`starter_meme.delivered`); an existing `starter_mp4.delivered` or `starter_jpeg.delivered` marker counts as delivered, so a user's deletions stay deleted and new starter files reach existing users through "Download more".
 * **External Meme Ingestion:** A meme chosen from outside the directory is COPIED into the active directory, and its path is serialized into the recovery state and verified for existence on boot.
 * **Runtime Logging:** `MemeSelected` is logged with `FileType`, `FilePath`, `Width`, `Height`, `AspectRatio`.
 * **Image Meme Duration:** `.png` / `.jpg` / `.jpeg` are assigned `memeDuration = 4.0` seconds via `-loop 1 -framerate {targetFps}` … `-t 4.0`.

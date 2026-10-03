@@ -62,3 +62,11 @@
 *.mov filter=lfs diff=lfs merge=lfs -text
 *.7z filter=lfs diff=lfs merge=lfs -text
 *.pdb filter=lfs diff=lfs merge=lfs -text
+
+# MEMEFOLDER_01 — meme pictures go through LFS too (DIST-REPOWEIGHT noted `jpeg/` had no rule).
+# Scoped to meme/ so no other image in the repository changes storage. The app's cloud sync
+# asks the LFS host first for pointer-sized blobs and falls back to raw (MEMESYNC_03), so either
+# storage works for clients.
+meme/*.png  filter=lfs diff=lfs merge=lfs -text
+meme/*.jpg  filter=lfs diff=lfs merge=lfs -text
+meme/*.jpeg filter=lfs diff=lfs merge=lfs -text

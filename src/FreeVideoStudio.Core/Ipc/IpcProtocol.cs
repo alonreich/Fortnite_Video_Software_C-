@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Buffers.Binary;
 using System.IO;
@@ -77,10 +80,10 @@ public partial class IpcJsonContext : JsonSerializerContext { }
 
 public static class IpcProtocol
 {
-    public const uint Magic = 0x50535646;
+    public const uint Magic = 0x50535646; // "FVSP" in Little-Endian ('F'=0x46, 'V'=0x56, 'S'=0x53, 'P'=0x50)
     public const byte Version = 1;
     public const int HeaderSize = 10;
-    public const int MaxPayloadSize = 16 * 1024 * 1024;
+    public const int MaxPayloadSize = 16 * 1024 * 1024; // 16 MB limit
 
     private static string? _cachedUserScope;
 
@@ -106,7 +109,7 @@ public static class IpcProtocol
             catch (System.Exception swallowed3)
             {
                 scope = Environment.UserName;
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             }
 
             _cachedUserScope = scope.Replace('\\', '_').Replace(':', '_').Replace('/', '_');
@@ -178,7 +181,7 @@ public static class IpcProtocol
                 {
                 trusted = string.Equals(impersonated, Environment.UserName, StringComparison.OrdinalIgnoreCase);
                 }
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             }
 
             return trusted;
@@ -211,7 +214,7 @@ public static class IpcProtocol
         }
         catch (JsonException swallowed4)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject();
         }
     }

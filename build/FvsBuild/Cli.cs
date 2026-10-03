@@ -18,6 +18,7 @@ internal static class Cli
         DateTime startTime = DateTime.UtcNow;
         object sync = new();
 
+        // Output events arrive on threadpool threads; BuildLog is internally locked.
         process.OutputDataReceived += (_, e) =>
         {
             if (e.Data is not null)
@@ -67,6 +68,7 @@ internal static class Cli
             }
             catch
             {
+                // Process may have exited concurrently.
             }
         }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
 
@@ -82,6 +84,7 @@ internal static class Cli
             using Process process = Start(fileName, args, redirect: true);
             process.Start();
             try { process.StandardInput.Close(); } catch { }
+            // Drain both pipes concurrently; a full stderr pipe would otherwise deadlock.
             Task<string> stderr = process.StandardError.ReadToEndAsync();
             _ = process.StandardOutput.ReadToEnd();
             _ = stderr.Result;
@@ -163,6 +166,7 @@ internal static class Cli
             }
             catch (ArgumentException)
             {
+                // Malformed PATH entry; keep probing.
             }
         }
         return null;
@@ -236,6 +240,7 @@ internal static class Cli
         ProcessStartInfo info = new()
         {
             FileName = "cmd.exe",
+            // The outer extra quotes are cmd.exe's quoted-command rule, not C# noise.
             Arguments = $"/d /c \"\"{devCmd}\" -arch=x64 -host_arch=x64 >nul 2>&1 && set\"",
             UseShellExecute = false,
             RedirectStandardInput = true,

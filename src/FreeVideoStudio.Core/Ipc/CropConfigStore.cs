@@ -1,4 +1,7 @@
-﻿using System.Text.Json;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using FreeVideoStudio.Core.Infrastructure;
 using FreeVideoStudio.Core.Media;
@@ -40,6 +43,14 @@ public sealed class CropConfigStore
                 StateTransferStore.DefaultMutexTimeout,
                 cancellationToken);
 
+            // SILENTRESET_01 — this line used to read
+            //     JsonObject payload = IsUsableConfig(config) ? Clone(config) : CropConfigDefaults.Create();
+            // A caller that handed over a document this store considered unusable therefore had its
+            // save REPLACED by factory defaults, silently and with a completed Task: every element
+            // in the user's profile was overwritten with the shipped layout, the rotation above then
+            // pushed the good file down the backup chain, and five more saves aged it out of
+            // existence. Nothing anywhere reported it. A save that cannot be performed must fail
+            // loudly; healing belongs in LoadUnlocked, where there is genuinely nothing to lose.
             if (!IsUsableConfig(config))
             {
                 string reason = DescribeUnusable(config);
@@ -66,17 +77,19 @@ public sealed class CropConfigStore
         }
         catch (JsonException swallowed7)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
         }
         catch (IOException swallowed9)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
         }
         catch (UnauthorizedAccessException swallowed)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
 
+        // Newest backup first. Do not rotate during recovery: that would replace a
+        // useful backup with the damaged live file and discard the oldest backup.
         for (int i = 1; i <= 5; i++)
         {
             JsonObject? backup = AtomicJsonFile.ReadObject(BackupPath(i));
@@ -151,6 +164,9 @@ public sealed class CropConfigStore
             }
         }
 
+        // CROPFALLBACK_02 — valid JSON and section names alone do not make a renderable profile.
+        // Reject damaged layer data before selecting a recovery backup or saving over good work.
+        // Empty sections and explicit zero rectangles remain legal (the user can remove all HUDs).
         var crops = config["crops_1080p"]!.AsObject();
         var scales = config["scales"]!.AsObject();
         var overlays = config["overlays"]!.AsObject();
@@ -193,7 +209,7 @@ public sealed class CropConfigStore
         try { return Frac.FromString(node.ToString()) > Frac.Zero; }
         catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -213,17 +229,17 @@ public sealed class CropConfigStore
         }
         catch (InvalidOperationException swallowed5)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (FormatException swallowed6)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (InvalidCastException swallowed8)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -243,12 +259,12 @@ public sealed class CropConfigStore
         }
         catch (InvalidOperationException swallowed3)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (InvalidCastException swallowed4)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

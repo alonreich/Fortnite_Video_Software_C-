@@ -14,6 +14,7 @@
 | ⚠ `src/FreeVideoStudio.App/Services/ProjectSession.cs` | `ProjectSession` | `Capture`, `SaveAsync`, `SaveAsAsync`, `OpenAsync`, `AutosaveTick`, `ConfirmDiscardAsync`, `IsDirty`, `PushEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
 | ⚠ `src/FreeVideoStudio.App/MainWindow.Project.cs` | `MainWindow` (Partial) | `RefreshProjectTitle`, `OnProjectDocumentApplied`, `BeginProjectHistory`, `PushProjectEdit` | CO-GOVERNED by `07_UNDO_AND_HISTORY.md`, `08_APPLICATION_COMPOSITION.md` |
 | `src/FreeVideoStudio.Core/Abstractions/IProjectStore.cs` | `IProjectStore`, `FileProjectStore` | `Save`, `Load`, `NormalizeExtension` | Store seam; forwards to `ProjectStore` |
+| `src/FreeVideoStudio.Core/Project/MemePresentationJson.cs` | `MemePresentationJson` | `Write`, `Apply`, `KeyMode`, `KeyCorner`, `KeySize`, `KeySound` | MEMEMODE_01 — the one JSON mapping of a meme's presentation (project, recovery, editor session) |
 | `src/FreeVideoStudio.Core/Infrastructure/AotJson.cs` | `AotJson` | `AddNode` | Reflection-free `JsonArray` append (AOTSAFETY_02) |
 | `src/FreeVideoStudio.App/FreeVideoStudio.App.csproj` | build configuration | `AOTSAFETY_01`, `SuppressTrimAnalysisWarnings`, `SuppressAotAnalysisWarnings` | Publish-time safety analysis |
 
@@ -223,7 +224,15 @@ The model and its persistence exist and are unit-tested
    `ApplyEdlStateAsync`, which reorders the queue in place (`MergerSession.SyncQueue`, never Clear) and
    re-derives music from its clip anchors. `UndoStack.ReplaceCurrent` absorbs the re-capture right after
    an undo so normalisation can never burn the redo branch.
-6. ~~Title-bar dirty indicator~~ — done (`PROJSESSION_05`: `MainWindow.RefreshProjectTitle` appends
+6. **`MEMEMODE_01` — dual-mode memes (schema 4).** Every meme object carries `mode` (`inline` | `corner`),
+   `corner` (`top_left` | `top_right` | `bottom_left` | `bottom_right`), `size` (`small` | `medium` | `large`) and
+   `sound` (bool), via `MemePresentationJson`. All optional on read: a file at schema 1–3 (no keys) reads every meme
+   as full screen, bottom right, medium, with sound — exactly what it always was. The bump to 4 is deliberate: the
+   keys live INSIDE a meme object, where a v3 reader keeps no unknown keys, so it would read a corner overlay as a
+   longer, full-screen video and drop the keys on save. The recovery document (RECOVERYDOC_01) and the editor's
+   session JSON use the same mapping; the Merger EDL carries the same four fields on `EdlMeme` (`FromJson` fills
+   them on older files, EDLNULL_01). Equality (UNDOEQ_01) covers them, so each change is an undo step.
+7. ~~Title-bar dirty indicator~~ — done (`PROJSESSION_05`: `MainWindow.RefreshProjectTitle` appends
    " •" to the project name while `ProjectSession.IsDirty`).
 
 **Still not done:**

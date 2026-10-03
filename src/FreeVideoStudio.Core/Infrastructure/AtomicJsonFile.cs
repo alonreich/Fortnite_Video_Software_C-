@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.Text.Json;
@@ -48,7 +54,7 @@ public static class AtomicJsonFile
         }
         catch (JsonException swallowed2)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
         catch (Exception ex)
@@ -70,7 +76,7 @@ public static class AtomicJsonFile
     /// ATOMICTEXT_01 — the SAME power-outage-safe protocol as <see cref="WriteObject"/>, for callers
     /// that already hold a fully formed JSON document as text and must not have it reshaped.
     ///
-    /// WHY THIS EXISTS: <c>SettingsManager.Save</c> serialises <c>AppSettings</c> through a
+    /// WHY THIS EXISTS: <c>SettingsManager</c>'s transaction (SETTX_02) serialises <c>AppSettings</c> through a
     /// source-generated <c>JsonSerializerContext</c> (required for NativeAOT). Round-tripping that
     /// output through <see cref="JsonObject"/> just to reach <see cref="WriteObject"/> would re-emit
     /// the document from a different writer and risk silent formatting/ordering drift in a file the
@@ -148,11 +154,11 @@ public static class AtomicJsonFile
         }
         catch (IOException swallowed)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
         catch (UnauthorizedAccessException swallowed3)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
     }
 }

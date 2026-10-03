@@ -1,4 +1,8 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -34,7 +38,7 @@ internal static class LaneDiskCache
         {
             string p = PathFor(key, extension);
             if (!File.Exists(p)) return null;
-            try { File.SetLastWriteTimeUtc(p, DateTime.UtcNow); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+            try { File.SetLastWriteTimeUtc(p, DateTime.UtcNow); } catch (Exception ex) { RuntimeLog.Swallowed(ex); }   // LRU touch
             return File.ReadAllBytes(p);
         }
         catch (Exception ex)

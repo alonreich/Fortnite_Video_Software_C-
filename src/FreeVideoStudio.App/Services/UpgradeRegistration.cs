@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -45,6 +47,38 @@ internal sealed class UpgradeRegistration(bool machine, string backupDirectory, 
     private bool OwnsTarget(string target) => installRoots.Any(root =>
         InstallDiscovery.Executables.Append("Uninstall.exe").Any(name =>
             string.Equals(Path.Combine(root, name), target, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// NOSPACE_01 — rewrites this user's EXISTING shortcuts whose target is inside one of
+    /// <paramref name="movedRoots"/> so they point at the current install. Creates nothing,
+    /// deletes nothing, and leaves unrelated shortcuts alone. Returns how many were rewritten.
+    /// </summary>
+    public static async Task<int> RetargetUserLinksAsync(string[] movedRoots)
+    {
+        var probe = new UpgradeRegistration(false, Path.GetTempPath(), movedRoots);
+        int changed = 0;
+        foreach (string folder in probe.Folders())
+        foreach (string link in Directory.EnumerateFiles(folder, "*.lnk"))
+        {
+            try
+            {
+                string target = await ReadTargetAsync(link).ConfigureAwait(false);
+                if (!probe.OwnsTarget(target)) continue;
+                // An uninstall shortcut is machine-wide and rewritten by the elevated worker.
+                if (string.Equals(Path.GetFileName(target), DeploymentFootprint.UninstallExeName, StringComparison.OrdinalIgnoreCase)) continue;
+                string temporary = link + ".upgrade.lnk";
+                await ShellLinkWriter.CreateAsync(temporary, DeploymentFootprint.InstallPath, InstallDiscovery.Destination,
+                    DeploymentFootprint.InstallPath + ",0", DeploymentFootprint.DisplayName).ConfigureAwait(false);
+                File.Move(temporary, link, overwrite: true);
+                changed++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                RuntimeLog.WarnThrottled("Upgrade", $"Shortcut could not be repointed; it will be retried: {ex.Message}");
+            }
+        }
+        return changed;
+    }
 
     public async Task CaptureAsync()
     {

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Automation;
@@ -7,6 +10,11 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using System;
 
+// GRIP_01 — ALIASED, NOT PLAIN `using Avalonia.Controls.Shapes`.
+// The App project has <ImplicitUsings>enable</ImplicitUsings>, which injects a global
+// `using System.IO;`. Importing the shapes namespace as well makes the bare name `Path`
+// ambiguous between `Avalonia.Controls.Shapes.Path` and `System.IO.Path`, and the file will not
+// compile. The alias states which one is meant and cannot be broken by a future global using.
 using ShapePath = Avalonia.Controls.Shapes.Path;
 
 namespace FreeVideoStudio.App.Controls;
@@ -60,6 +68,9 @@ public static class WindowResizeGrip
 
         try
         {
+            // A window that cannot be resized must not advertise that it can. This is the same
+            // rule as the detach button's "never a dead click" (UI-DETACH): an affordance that
+            // does nothing is worse than no affordance.
             if (!window.CanResize) return;
 
             var grip = window.FindControl<Border>("ResizeGrip") ?? BuildGrip(window);
@@ -69,6 +80,7 @@ public static class WindowResizeGrip
         }
         catch (Exception ex)
         {
+            // A missing grip is a cosmetic loss. It must never stop a window opening.
             RuntimeLog.Swallowed(ex);
         }
     }
@@ -83,6 +95,10 @@ public static class WindowResizeGrip
             IsHitTestVisible = false
         };
 
+        // NORTH STAR 5 — the colour comes from the named token, never a literal. Resolved the
+        // same way VoiceOverWindow.GetAppBrush does it, which is the pattern already proven in
+        // this codebase; the fallback exists only so a missing token cannot leave an invisible
+        // grip, which would be the dead-decoration failure again by another route.
         mark.Stroke = ResolveBrush(window, "AppBorderBrush", Brushes.Gray);
 
         return new Border
@@ -92,6 +108,8 @@ public static class WindowResizeGrip
             MinHeight = GripSizePx,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
+            // Transparent, NOT null: a null background is not hit-testable, so the grip would be
+            // visible and unclickable — the dead-decoration failure this class exists to end.
             Background = Brushes.Transparent,
             Child = mark
         };
@@ -144,6 +162,8 @@ public static class WindowResizeGrip
     {
         grip.Cursor = new Cursor(StandardCursorType.BottomRightCorner);
         grip.Opacity = RestingOpacity;
+        // Above every overlay, notice and dimmer: the corner must stay grabbable even while a
+        // screen is busy, which is the one time a user is most likely to want to make it bigger.
         grip.ZIndex = int.MaxValue;
         ToolTip.SetTip(grip, tooltip);
         AutomationProperties.SetName(grip, tooltip);
@@ -153,6 +173,8 @@ public static class WindowResizeGrip
 
         grip.PointerPressed += (_, e) =>
         {
+            // Dragging the corner of a maximized window fights the window manager and lands it in
+            // a half-restored state, so the gesture is simply not offered there.
             if (window.WindowState != WindowState.Normal) return;
             if (!e.GetCurrentPoint(window).Properties.IsLeftButtonPressed) return;
 

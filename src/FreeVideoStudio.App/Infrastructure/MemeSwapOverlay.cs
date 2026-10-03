@@ -1,4 +1,7 @@
-﻿using Avalonia.Controls;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia.Controls;
 
 namespace FreeVideoStudio.App.Infrastructure;
 

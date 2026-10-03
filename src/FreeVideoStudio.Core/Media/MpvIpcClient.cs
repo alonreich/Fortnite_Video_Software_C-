@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -33,6 +36,9 @@ public class MpvIpcClient : IDisposable
     private volatile bool _isPaused;
     private volatile bool _isEof;
 
+    // THROTTLE_01 — see AnyPlaybackActive. Static because the question it answers is app-wide:
+    // background work (the film-lane prewarm) must yield to the MAIN preview just as much as to
+    // the Granular editor's or the Music Wizard's player, and no one client knows about the rest.
     private static int _playingClientCount;
     private bool _countedAsPlaying;
     private readonly object _playbackGate = new();
@@ -44,12 +50,75 @@ public class MpvIpcClient : IDisposable
     private ulong _fpsObsId;
 
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // AUD-MASTERVOL — THE SUITE-WIDE PREVIEW MASTER (Main App, Video Merger, Crop Tools and every
+    // dialog with a player). One level, one mute, one event; every window and player follows it.
+    //
+    // VOLCURVE_01 — the slider position is PERCEPTUAL: gain = (position/100)^3, the same cubic curve
+    //   mpv uses natively (50% ≈ -18 dB). The old code cancelled mpv's curve so the slider was linear
+    //   amplitude (50% = -6 dB) and most of its travel barely changed anything. The Music Wizard's
+    //   VIDEO/MUSIC faders stay LINEAR (they must match the export's `volume=` gain), so a player's
+    //   mpv volume is position × ∛balance:  ((position/100)·∛balance)³ = (position/100)³ · balance.
+    // VOLMUTE_01 — mute is its own flag: muting keeps the level, unmuting restores it exactly.
+    // VOLSYNC_01 — while the Windows audio session of this process carries the master level
+    //   (WindowsAudioSessionSync), MasterAppliedBySystem is true and players carry ONLY their balance,
+    //   so the master is applied once — never twice.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     public static int GlobalMasterVolume { get; private set; } = 100;
+    public static bool GlobalMuted { get; private set; }
+    public static bool MasterAppliedBySystem { get; private set; }
+
+    /// <summary>Fired (with the level) on ANY change of level, mute or where the master is applied.</summary>
     public static event Action<int>? GlobalMasterVolumeChanged;
+
     public static void SetGlobalMasterVolume(int volume)
     {
         GlobalMasterVolume = Math.Clamp(volume, 0, 100);
         GlobalMasterVolumeChanged?.Invoke(GlobalMasterVolume);
+    }
+
+    public static void SetGlobalMuted(bool muted)
+    {
+        if (GlobalMuted == muted) return;
+        GlobalMuted = muted;
+        GlobalMasterVolumeChanged?.Invoke(GlobalMasterVolume);
+    }
+
+    public static void SetMasterAppliedBySystem(bool bySystem)
+    {
+        if (MasterAppliedBySystem == bySystem) return;
+        MasterAppliedBySystem = bySystem;
+        GlobalMasterVolumeChanged?.Invoke(GlobalMasterVolume);
+    }
+
+    /// <summary>VOLCURVE_01 — linear gain of a slider position (0-100).</summary>
+    public static double PerceptualGain(double percent)
+    {
+        double p = Math.Clamp(double.IsFinite(percent) ? percent : 0.0, 0.0, 100.0) / 100.0;
+        return p * p * p;
+    }
+
+    /// <summary>VOLCURVE_01 — inverse of <see cref="PerceptualGain"/>: the slider position of a linear gain.</summary>
+    public static double PositionForGain(double gain) =>
+        100.0 * Math.Cbrt(Math.Clamp(double.IsFinite(gain) ? gain : 0.0, 0.0, 1.0));
+
+    /// <summary>
+    /// The linear gain a NON-mpv player (NAudio voice-over takes) must apply for the master: 0 when
+    /// muted, 1 when the Windows session already applies it, the perceptual gain otherwise.
+    /// </summary>
+    public static double MasterLinearGain =>
+        GlobalMuted ? 0.0 : MasterAppliedBySystem ? 1.0 : PerceptualGain(GlobalMasterVolume);
+
+    /// <summary>
+    /// The mpv `volume` property for a player whose own LINEAR balance is <paramref name="balanceLinear"/>
+    /// (1.0 = the Music Wizard fader at 100%, or no fader at all).
+    /// </summary>
+    public static double PlayerMpvVolume(double balanceLinear = 1.0)
+    {
+        if (GlobalMuted) return 0.0;
+        double master = MasterAppliedBySystem ? 100.0 : Math.Clamp(GlobalMasterVolume, 0, 100);
+        double b = Math.Max(0.0, double.IsFinite(balanceLinear) ? balanceLinear : 0.0);
+        return Math.Min(100.0, master * Math.Cbrt(b));
     }
 
     public double CurrentTime { get; private set; }
@@ -169,7 +238,7 @@ public class MpvIpcClient : IDisposable
 
             MpvWrapper.mpv_set_option_string(_mpvHandle, "idle", "yes");
             MpvWrapper.mpv_set_option_string(_mpvHandle, "ytdl", "no");
-            MpvWrapper.mpv_set_option_string(_mpvHandle, "volume", ToMpvVolume(GlobalMasterVolume).ToString(CultureInfo.InvariantCulture));
+            MpvWrapper.mpv_set_option_string(_mpvHandle, "volume", PlayerMpvVolume().ToString(CultureInfo.InvariantCulture));
 
             int err = MpvWrapper.mpv_initialize(_mpvHandle);
             if (err < 0)
@@ -198,6 +267,8 @@ public class MpvIpcClient : IDisposable
         _pauseObsId   = MpvWrapper.ObserveProperty(_mpvHandle, "pause",     MpvWrapper.MpvFormat.Double);
         _durationObsId = MpvWrapper.ObserveProperty(_mpvHandle, "duration",  MpvWrapper.MpvFormat.Double);
         _eofObsId     = MpvWrapper.ObserveProperty(_mpvHandle, "eof-reached", MpvWrapper.MpvFormat.Double);
+        // THUMB_01 — container-fps is the file's declared rate and is stable for the whole clip,
+        // unlike estimated-vf-fps which drifts with decode load and would make a frame step jitter.
         _fpsObsId     = MpvWrapper.ObserveProperty(_mpvHandle, "container-fps", MpvWrapper.MpvFormat.Double);
 
 
@@ -247,7 +318,7 @@ public class MpvIpcClient : IDisposable
                 }
                 catch (Exception swallowed2)
                 {
-                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 }
             }
         }
@@ -287,20 +358,24 @@ public class MpvIpcClient : IDisposable
                     IsPaused = paused;
                     PauseChanged?.Invoke(paused);
                 }
-                UpdatePlaybackContribution();
+                UpdatePlaybackContribution(); // THROTTLE_01 — run even when unchanged: property
+                                              // events can arrive before/after duration in any
+                                              // order, and the call early-outs for free.
                 break;
 
             case "duration":
                 Duration = value > 0 ? value : 0;
-                UpdatePlaybackContribution();
+                UpdatePlaybackContribution(); // THROTTLE_01 — a load starts playing (pause=false)
                 break;
 
             case "eof-reached":
                 IsEof = value > 0.5;
-                UpdatePlaybackContribution();
+                UpdatePlaybackContribution(); // THROTTLE_01 — playback finished
                 break;
 
             case "container-fps":
+                // THUMB_01 — mpv reports 0 (and briefly nonsense) between files; only accept a
+                // plausible rate so a bad reading cannot poison a frame step.
                 if (value > 1.0 && value < 1000.0) VideoFps = value;
                 break;
         }
@@ -379,6 +454,10 @@ public class MpvIpcClient : IDisposable
 
         if (args[0].ToString() == "seek")
         {
+            // MPVEOF_01 — a seek moves the playhead, so the cached "we are sitting on the last
+            // frame" answer is stale from this instant. Same reasoning as SetPropertyAsync: the
+            // observer is asynchronous, and every caller that seeks and then immediately checks
+            // IsEof would otherwise act on the previous file position.
             IsEof = false;
             SeekCompleted?.Invoke();
         }
@@ -441,6 +520,31 @@ public class MpvIpcClient : IDisposable
             {
                 IsPaused = value == "yes";
 
+                // ══════════════════════════════════════════════════════════════════════════
+                // MPVEOF_01 — CLEAR eof-reached LOCALLY WHEN WE ASK IT TO PLAY.
+                //
+                // THE TRAP: `IsEof` is written ONLY by the "eof-reached" property observer, which
+                // arrives asynchronously on mpv's event thread. `IsPaused`, one line above, has
+                // always been written locally and immediately — precisely so a caller that just
+                // issued a command is not told the opposite by a stale field. `IsEof` was left
+                // out of that rule, and MainWindow's playback tick ends with an UNCONDITIONAL
+                //
+                //     if (IpcClient.IsEof) SetPropertyAsync("pause", "yes");
+                //
+                // So at the end of a file: PLAY unpauses -> the 100 ms tick fires before mpv's
+                // eof-reached=no event has landed -> the tick pauses again. One frame, then
+                // paused, forever, with the play button appearing to do nothing. That is the
+                // "trapped, only moves one frame at a time" report, and it is reachable from any
+                // route that leaves the playhead at the end — playing to it, seeking to it, or
+                // dragging a marker there.
+                //
+                // Setting it false here mirrors the IsPaused rule exactly: we asked for playback,
+                // so we are no longer at a standstill on the last frame. mpv still owns the truth
+                // and the observer will set it back to true the moment the file really does end.
+                //
+                // ⚠️ The seek above must clear it too — it moves the playhead off the end, so
+                // leaving eof-reached latched would pause the very playback it just rewound for.
+                // ══════════════════════════════════════════════════════════════════════════
                 if (value == "no") IsEof = false;
             }
         }
@@ -448,14 +552,11 @@ public class MpvIpcClient : IDisposable
     }
 
     /// <summary>
-    /// Converts the app's linear audio percentage to mpv's cubic volume scale.
+    /// Applies the suite master (level, mute, curve) times this player's LINEAR balance
+    /// (<paramref name="balanceLinear"/>, 1.0 = unity). See <see cref="PlayerMpvVolume"/>.
     /// </summary>
-    public static double ToMpvVolume(double linearPercent) =>
-        100.0 * Math.Cbrt(Math.Clamp(double.IsFinite(linearPercent) ? linearPercent : 0.0, 0.0, 100.0) / 100.0);
-
-    /// <summary>Match FFmpeg/NAudio linear gain while compensating for mpv's cubic volume curve.</summary>
-    public Task SetPreviewVolumeAsync(double linearPercent) =>
-        SetPropertyDoubleAsync("volume", ToMpvVolume(linearPercent));
+    public Task ApplyPreviewGainAsync(double balanceLinear = 1.0) =>
+        SetPropertyDoubleAsync("volume", PlayerMpvVolume(balanceLinear));
 
     /// <summary>Sets a raw mpv double property using invariant number formatting.</summary>
     public Task SetPropertyDoubleAsync(string name, double value)
@@ -499,6 +600,9 @@ public class MpvIpcClient : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        // THROTTLE_01 — must run before anything below tears state down: a player that was
+        // counted as playing has to give its count back or background work would stay yielded
+        // forever. _disposed is already true here, so this can only ever decrement.
         UpdatePlaybackContribution();
 
         bool loopStopped = true;
@@ -517,7 +621,7 @@ public class MpvIpcClient : IDisposable
                 catch (System.Exception swallowed)
                 {
                     loopStopped = false;
-                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                 }
                 _eventLoopThread = null;
             }

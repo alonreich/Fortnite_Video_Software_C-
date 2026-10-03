@@ -88,6 +88,7 @@ public class MergerSessionTests
         Assert.Equal(new EdlAnchor(ids.Ids[1], 3_250_000), edl.Thumbnail!.At);
         Assert.Equal(1.5, edl.BaseSpeed);
 
+        // Through JSON (what the store writes), then back to window state.
         MergeEdl back = MergeEdl.FromJson(edl.ToJson())!;
         Assert.Equal(edl, back);
         var plan = MergerSession.Plan(back, FileId);
@@ -103,6 +104,7 @@ public class MergerSessionTests
         Assert.Equal(s.Music.OffsetSec, music.OffsetSec);
         Assert.Equal(0.8, music.MusicVolume);
 
+        // Capturing the restored state again is a no-op (undo must see no phantom change).
         var s2 = s with { Ids = restoredIds.Ids, Music = music };
         Assert.Equal(edl, CaptureAgain(s2, tl, back));
     }
@@ -119,12 +121,13 @@ public class MergerSessionTests
         var fx = new EdlEffects { Freezes = new[] { new EdlFreeze(2_000_000, 1) } };
         var withFx = first with { Clips = new[] { first.Clips[0], first.Clips[1] with { Effects = fx }, first.Clips[2] } };
 
+        // Reorder the queue (c, b, a); analysis still running (null); timeline stale (null).
         var reordered = s with { Paths = new[] { s.Paths[2], s.Paths[1], s.Paths[0] }, Ids = new[] { s.Ids[2], s.Ids[1], s.Ids[0] } };
         var next = MergerSession.Capture(reordered, _ => null, FileId, null, withFx);
 
         Assert.Equal(fx, next.Clips[1].Effects);
         Assert.Equal(first.Clips[0].DurationUs, next.Clips[2].DurationUs);
-        Assert.Equal(first.Music!.Start, next.Music!.Start);
+        Assert.Equal(first.Music!.Start, next.Music!.Start);   // stale timeline → previous anchors kept
     }
 
     [Fact]
@@ -139,14 +142,15 @@ public class MergerSessionTests
 
             using (var a = new MergerAutosaveStore(file, TimeSpan.FromMilliseconds(30)))
             {
-                a.Schedule(edl with { BaseSpeed = 3 });
+                a.Schedule(edl with { BaseSpeed = 3 });   // superseded by the next edit (debounced)
                 a.Schedule(edl);
                 await a.FlushAsync();
             }
 
-            using var b = new MergerAutosaveStore(file);
+            using var b = new MergerAutosaveStore(file);   // "reopen"
             Assert.Equal(edl, b.Load());
 
+            // An empty queue clears the autosave; a later edit writes again.
             b.Schedule(MergeEdl.Empty);
             await b.FlushAsync();
             Assert.Null(b.Load());
@@ -197,8 +201,8 @@ public class MergerSessionTests
         Assert.Equal(new[] { @"C:\c\b.mp4" }, plan.Missing);
         Assert.Equal(new[] { @"C:\c\c.mp4" }, plan.Changed);
         Assert.Equal(2, plan.Edl.Clips.Count);
-        Assert.Null(plan.Edl.Thumbnail);
-        Assert.Equal(0, plan.Edl.Clips[1].DurationUs);
+        Assert.Null(plan.Edl.Thumbnail);                       // it was on the missing clip
+        Assert.Equal(0, plan.Edl.Clips[1].DurationUs);         // changed → re-analyse
         Assert.Equal(3001, plan.Edl.Clips[1].SizeBytes);
         Assert.Equal(ids.Ids[0], plan.Edl.Music!.Start.ClipId);
 

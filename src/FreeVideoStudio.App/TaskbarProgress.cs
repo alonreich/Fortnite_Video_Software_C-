@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -75,15 +78,6 @@ internal static unsafe partial class TaskbarProgress
 
     private const uint FLASHW_TRAY = 0x00000002;
 
-    /// <summary>
-    /// FLASHW_TIMER | 0x08. This means "keep flashing until the window is brought to the
-    /// foreground" and it makes FLASHWINFO.uCount IRRELEVANT - Windows ignores the count when
-    /// this bit is set. Flash() used to pass it together with uCount = uint.MaxValue, which is
-    /// why the finished-export flash blinked forever instead of a fixed number of times.
-    /// Kept named here so nobody re-adds it by accident thinking it is a no-op.
-    /// </summary>
-    private const uint FLASHW_TIMERNOFG_UNUSED = 0x0000000C;
-
     /// <summary>Creates the shell object once. Returns false forever after the first failure.</summary>
     private static bool TryGetTaskbar(out void** taskbar)
     {
@@ -131,7 +125,7 @@ internal static unsafe partial class TaskbarProgress
             {
                 _unavailable = true;
                 SafeLog($"Taskbar progress unavailable: {ex.GetType().Name}: {ex.Message}");
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 return false;
             }
         }

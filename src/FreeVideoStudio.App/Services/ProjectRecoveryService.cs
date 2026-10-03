@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Text.Json.Nodes;
 using FreeVideoStudio.App.Infrastructure;
 using FreeVideoStudio.App.ViewModels;
@@ -55,8 +58,6 @@ public sealed class ProjectRecoveryService
         _captureCurrentDocument = captureDocument ?? throw new ArgumentNullException(nameof(captureDocument));
         _captureTransientMetadata = captureTransient;
     }
-
-    public bool IsDocumentSourceWired => _captureCurrentDocument is not null;
 
     /// <summary>
     /// RECOVERYDOC_06 — the ONLY recovery write. Persists the canonical document captured from the
@@ -115,6 +116,31 @@ public sealed class ProjectRecoveryService
     public void ReleaseLockOnly() => _recovery.ReleaseLockOnly();
 
     /// <summary>
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// "Is there anything here a user would be upset to lose?"
+    ///
+    /// Two consumers, and they pull in the same direction: it decides whether a recovery snapshot
+    /// is worth writing, and (SWITCHPROMPT_01) whether the Video Merger / Crop Tools hand-off is
+    /// worth interrupting with a confirmation.
+    ///
+    /// ⚠️ A LOADED VIDEO IS NOT WORK. Uploading a clip and touching nothing else must return false.
+    ///
+    /// SWITCHPROMPT_01 — TWO REASONS THIS RETURNED TRUE ON A COMPLETELY EMPTY EDITOR, which is why
+    /// the switch prompt fired with nothing loaded:
+    ///
+    ///   1. The toggle comparisons were against HARDCODED assumptions — portrait on, fade on,
+    ///      speed 1.1 — rather than against the defaults the user actually configured in
+    ///      Settings → Defaults. Anyone who set "Portrait Mode: off", or a default speed of 1.0,
+    ///      had a session that was born dirty: the very first frame after startup already
+    ///      disagreed with the constants below, with no video and no edit in sight. Every one of
+    ///      those comparisons now reads the SAME defaults ApplyDefaults() seeds the session from,
+    ///      so "unchanged from where the app put it" reliably means unchanged.
+    ///
+    ///   2. Nothing checked whether a video was loaded at all. With no clip there is no project:
+    ///      no trim to keep, nothing to recover, nothing to warn about. That is now the first
+    ///      question asked, and it is the guard that makes the empty-editor case impossible
+    ///      regardless of what any toggle says.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
     /// Unchanged in behaviour: this is a LIVE-SESSION predicate (docs/06 §8 — the close-path
     /// guard, SWITCHPROMPT_01), never a recovery-JSON reader. It answers "does the CURRENT editor
     /// differ from its defaults"; the persisted document's emptiness backstop is
@@ -124,12 +150,15 @@ public sealed class ProjectRecoveryService
     {
         if (mainVm.ExportedCleanSinceLastEdit) return false;
 
+        // No clip, no project. Nothing below can be true in a way that matters.
         if (string.IsNullOrWhiteSpace(mainVm.LoadedVideoPath)) return false;
 
         var defaults = SettingsManager.Instance.Defaults;
 
         bool memeSelected = mainVm.IsAddMeme || mainVm.SelectedMemeItem != null;
 
+        // SPECTATINGDEFAULT_01 — the eye starts on, so turning it off is an edit.
+        // No Mask forces both controls off; that profile's initial state is still clean.
         bool noMask = MaskOverlayManager.IsNoMask(SettingsManager.Instance.ActiveMaskOverlay);
         bool hudToggled = mainVm.IsTeammates != (!noMask && defaults.ShowTeammates)
                        || mainVm.IsSpectating != !noMask;

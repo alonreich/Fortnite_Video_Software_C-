@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -37,27 +40,51 @@ public static class MemeAssets
         Path.Combine(FreeVideoStudio.Core.Infrastructure.ApplicationPaths.CreateDefault().ProgramDataRoot,
                      $"starter_{category}.delivered");
 
+    /// <summary>STARTER_01 — the song category: repo `mp3\`, shipped as `starter\mp3`.</summary>
+    public const string SongCategory = "mp3";
+
+    /// <summary>
+    /// MEMEFOLDER_01 — the ONE meme category: repo `meme\`, shipped as `starter\meme`. Video and
+    /// picture memes used to be two categories (`mp4`, `jpeg`) with two delivery markers.
+    /// </summary>
+    public const string MemeCategoryFolder = "meme";
+
+    /// <summary>
+    /// MEMEFOLDER_01 — delivery markers written by builds that still had one category per kind.
+    /// A user who already received the old starter set has had their chance to delete files, so
+    /// one of these markers counts as "meme starter delivered" and nothing is copied again.
+    /// Anything new in the starter set reaches existing users through "Download more".
+    /// </summary>
+    private static readonly string[] LegacyMemeCategories = { "mp4", "jpeg" };
+
     /// <summary>
     /// The exact files shipped in the installer, per category.
-    /// ⚠️ THESE NAMES ARE A CONTRACT WITH Build.cmd (step 2.6). Rename a file in one place and it
-    /// silently stops being delivered. Deliberately a handful — the full mp3 library alone is
-    /// 197 MB; everything else is one click away via the per-category download buttons.
+    /// ⚠️ THESE NAMES ARE A CONTRACT WITH build/FvsBuild/Staging.cs (StarterMp3 / StarterMeme).
+    /// Rename a file in one place and it silently stops being delivered — STARTERLIST_01:
+    /// "What the fuck am I doing here (Robert Deniro).mp4" was split into Landscape and Portrait
+    /// files, both lists kept the old name, and staging refused to build.
+    /// ArchitectureRuleTests.StarterListsMatchTheStagingLists keeps the two lists identical.
+    /// Deliberately a handful — the full mp3 library alone is 197 MB; everything else is one click
+    /// away via the per-category download buttons.
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string[]> StarterFiles =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
-            ["mp3"] = new[]
+            [SongCategory] = new[]
             {
                 "Bonnie Tyler - Holding Out For A Hero.mp3",
                 "Cool Dance Background Music (No CopyRights).mp3",
             },
-            ["mp4"] = new[]
+            [MemeCategoryFolder] = new[]
             {
-                "What the fuck am I doing here (Robert Deniro).mp4",
+                "What the fuck am I doing here (Robert Deniro) - Landscape.mp4",
+                "What the fuck am I doing here (Robert Deniro) - Portrait.mp4",
                 "Donald Trump - He Died like a Dog.mp4",
                 "I will find you and I will kill you.mp4",
+                "Terminated.png",
+                "What The Fuck.jpg",
+                "oopsie.png",
             },
-            ["jpeg"] = Array.Empty<string>(),
         };
 
     /// <summary>
@@ -102,6 +129,15 @@ public static class MemeAssets
             string marker = MarkerPath(category);
             if (File.Exists(marker)) return 0;
 
+            // MEMEFOLDER_01 — honour a delivery made under the old per-kind categories.
+            if (string.Equals(category, MemeCategoryFolder, StringComparison.OrdinalIgnoreCase) &&
+                LegacyMemeCategories.Any(c => File.Exists(MarkerPath(c))))
+            {
+                File.WriteAllText(marker, DateTime.UtcNow.ToString("o"));
+                RuntimeLog.Info("Starter", "Meme starter set was already delivered by an older build; nothing copied.");
+                return 0;
+            }
+
             string src = Path.Combine(StarterRoot(), category);
             if (!Directory.Exists(src))
             {
@@ -111,9 +147,7 @@ public static class MemeAssets
 
             Directory.CreateDirectory(destination);
 
-            string[] wanted = StarterFiles.TryGetValue(category, out var list) && list.Length > 0
-                ? list
-                : Directory.GetFiles(src).Select(Path.GetFileName).Where(n => n != null).Cast<string>().ToArray();
+            string[] wanted = StarterFiles.TryGetValue(category, out var list) ? list : Array.Empty<string>();
 
             foreach (string name in wanted)
             {

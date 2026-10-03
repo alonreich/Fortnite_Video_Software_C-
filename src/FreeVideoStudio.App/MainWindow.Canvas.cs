@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -95,12 +98,38 @@ public partial class MainWindow
                 return;
             }
 
+            // ══════════════════════════════════════════════════════════════════════════════
+            // THUMB_02 — THE FLAG ALONE IS NOT PROOF THAT A DRAG IS STILL HAPPENING.
+            //
+            // `_isDraggingThumbnailMarker` was raised on PointerPressed and lowered ONLY in
+            // PointerReleased. If the marker control was torn down mid-gesture — UpdateTimelineMarkers
+            // clears and rebuilds the whole canvas, and it is POSTED, so it can land between the
+            // press and the release — Avalonia raises PointerCaptureLost on the dead control
+            // instead of PointerReleased, and nothing ever lowered the flag again.
+            //
+            // From that moment this handler was live on the REBUILT marker with no button held, so
+            // merely moving the mouse near the camera icon re-ran MoveThumbnailMarkerToCanvasX,
+            // which PAUSES the player and seeks it (SeekMainPreviewToMarkerMs). That is the
+            // "touched the thumbnail icon and now play only advances one frame and pauses" trap.
+            //
+            // Two independent guards, because either one alone can be defeated: the button must
+            // still be down, and PointerCaptureLost below must clear the flag.
+            // ══════════════════════════════════════════════════════════════════════════════
             if (!e.GetCurrentPoint(marker).Properties.IsLeftButtonPressed)
             {
                 EndThumbnailMarkerDrag(marker, redraw: true);
                 return;
             }
 
+            // THUMB_01 — WAS `seekPreview: false`, WHICH IS WHY DRAGGING SHOWED NOTHING.
+            // The marker slid along the timeline while the picture stayed frozen on whatever frame
+            // was up before the drag began, so you were choosing a cover image blind and only saw
+            // the result on release. Seeking on every move turns the drag into a scrub.
+            //
+            // Safe to fire on every pointer move: SeekInternal coalesces (a seek already in flight
+            // parks the newest target in `_nextSeekTarget` and runs it on completion), so a fast
+            // drag collapses into "seek to wherever the pointer ended up" instead of queueing one
+            // mpv command per pixel.
             MoveThumbnailMarkerToCanvasX(e.GetPosition(timelineCanvas).X, timelineCanvas, durationSeconds, marker, seekPreview: true);
             e.Handled = true;
         };
@@ -117,6 +146,9 @@ public partial class MainWindow
             e.Handled = true;
         };
 
+        // THUMB_02 — the only event that is GUARANTEED to arrive when a captured control is
+        // removed from the tree, the window loses focus, or the pointer is stolen. Without it a
+        // rebuild mid-gesture left the drag flag raised for the rest of the session.
         marker.PointerCaptureLost += (_, _) =>
         {
             if (!_isDraggingThumbnailMarker) return;
@@ -137,7 +169,7 @@ public partial class MainWindow
         _isDraggingThumbnailMarker = false;
         _isThumbnailMarkerSelected = true;
         SetTimelineCameraHover(marker, false);
-        UpdateThumbnailButtonState();
+        UpdateThumbnailButtonState();   // THUMB_01
         if (redraw) UpdateTimelineMarkers();
         UpdateEstimatedQuality();
         SaveRecoveryState(label: "move thumbnail");
@@ -249,6 +281,8 @@ public partial class MainWindow
         UpdateEstimatedQuality();
         UpdateThumbnailButtonState();
 
+        // A held arrow key repeats at the OS key rate. Writing the whole recovery file on each
+        // repeat is pure waste, so the save is coalesced to once the key has settled.
         QueueThumbnailRecoverySave();
     }
 
@@ -281,7 +315,7 @@ public partial class MainWindow
         }
 
         _isCurrentlyFrozen = false;
-        TransportTrace("marker-seek", "pause");
+        TransportTrace("marker-seek", "pause");   // TRANSPORT_TRACE_01
         _ = ActiveVideoHost.IpcClient.SetPropertyAsync("pause", "yes");
         _ = SeekInternal(markerMs / 1000.0);
     }
@@ -331,11 +365,13 @@ public partial class MainWindow
 
     private void UpdateTimelineMarkers()
     {
+        // Cheap reject: identical to the pre-TIMELINEDRAW_01 guards, just without binding the
+        // locals the render pass now fetches for itself.
         if (TimelineMarkersCanvasCtl == null) return;
         if (ActiveVideoHost?.IpcClient == null) return;
         if (ActiveVideoHost.IpcClient.Duration <= 0) return;
 
-        if (_timelineRedrawQueued) return;
+        if (_timelineRedrawQueued) return;   // TIMELINEDRAW_01 — a rebuild is already queued.
         _timelineRedrawQueued = true;
         _timelineRedrawDeadlineTicks =
             Environment.TickCount64 + TimelineRedrawGestureWaitCeilingMs;
@@ -363,10 +399,12 @@ public partial class MainWindow
         {
             if (IsMarkerGestureActive && Environment.TickCount64 < _timelineRedrawDeadlineTicks)
             {
+                // Still dragging. Keep the request queued and look again when the UI is idle.
                 QueueTimelineRedrawPass(Avalonia.Threading.DispatcherPriority.Background);
                 return;
             }
 
+            // Cleared BEFORE the render so a request raised by the render itself is not dropped.
             _timelineRedrawQueued = false;
             RenderTimelineMarkersCore();
         }, priority);
@@ -421,9 +459,27 @@ public partial class MainWindow
         }
 
 
+        // ══════════════════════════════════════════════════════════════════════════════
+        // CUT_01 — CUTS ARE DRAWN AS FIXED-WIDTH MARKERS, NOT AS BLOCKS.
+        //
+        // This is THE design decision that makes the whole feature workable, and it is the
+        // answer to the "invisible ghost" objection that sank the original proposal. A cut
+        // occupies ZERO time in the finished video, so on an output-time ruler it is zero
+        // pixels wide — there is nothing to grab, nothing to drag, nothing to point a coach
+        // cursor at. Every professional editor solves this the same way: draw a constant-size
+        // glyph at the join. It is always CutMarkerWidth px, whether it removed half a second
+        // or half an hour, so it is always clickable and never "violently glitches".
+        //
+        // This canvas is a SOURCE-time ruler (it is drawn against the full clip duration), so
+        // the deleted span CAN be shaded here to show what is gone. The zero-width problem is
+        // real on the OUTPUT ruler — which is exactly why cuts are set on this screen and not
+        // in the Granular editor, whose timeline is output time.
+        // ══════════════════════════════════════════════════════════════════════════════
         if (_cuts.Count > 0)
         {
             const double CutMarkerWidth = 9.0;
+            // TONE_01: the deleted-span shading and its handle both come off AppDangerColor
+            // now, so darkening the token darkens the cut markers with everything else.
             var cutBase = Infrastructure.ThemeResources.Colour(this, "AppDangerColor", Avalonia.Media.Color.FromRgb(168, 50, 50));
             var cutFill = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(150, cutBase.R, cutBase.G, cutBase.B));
             var cutEdge = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromArgb(255,
@@ -445,6 +501,8 @@ public partial class MainWindow
                 Avalonia.Controls.Canvas.SetTop(removedBand, trimMarkerTop);
                 canvas.Children.Add(removedBand);
 
+                // The constant-size handle. Centred on the deleted span so it stays reachable
+                // even when the span itself is thinner than the glyph.
                 var handle = new Avalonia.Controls.Border
                 {
                     Background = cutEdge,
@@ -482,6 +540,7 @@ public partial class MainWindow
                 {
                     double factor = Math.Clamp((baseSpd - speed) / Math.Max(0.001, baseSpd - 0.1), 0.0, 1.0);
                     byte alpha = (byte)(51 + factor * (230 - 51));
+                    // TONE_01 — mirrors GranularSpeedEditorWindow.GetSegmentOverlayColor exactly.
             var slowC = Infrastructure.ThemeResources.Colour(this, "AppDangerColor", Avalonia.Media.Color.FromRgb(168, 50, 50));
             segColor = Avalonia.Media.Color.FromArgb(alpha, slowC.R, slowC.G, slowC.B);
                 }
@@ -489,6 +548,7 @@ public partial class MainWindow
                 {
                     double factor = Math.Clamp((speed - baseSpd) / Math.Max(0.001, 4.1 - baseSpd), 0.0, 1.0);
                     byte alpha = (byte)(51 + factor * (230 - 51));
+                    // TONE_01
             var fastC = Infrastructure.ThemeResources.Colour(this, "AppSuccessColor", Avalonia.Media.Color.FromRgb(63, 156, 107));
             segColor = Avalonia.Media.Color.FromArgb(alpha, fastC.R, fastC.G, fastC.B);
                 }
@@ -506,6 +566,16 @@ public partial class MainWindow
             }
         }
 
+        // ══════════════════════════════════════════════════════════════════════════
+        // MEME_06 — ONE CLOWN, AND IT IS DISPLAY ONLY.
+        //
+        // This canvas is a SOURCE-time ruler. A meme occupies zero source seconds, so its start
+        // and its end are the same instant here and two heads would land on the same pixel —
+        // there is no band to grab and nothing to drag along. One head, at the moment of
+        // gameplay it interrupts, so you can see at a glance that the video has memes in it and
+        // where; the block with its two ends lives in the Speed Editor, where output time gives
+        // it a real width.
+        // ══════════════════════════════════════════════════════════════════════════
         if (_memePlacements.Count > 0)
         {
             foreach (var meme in _memePlacements)
@@ -636,7 +706,7 @@ public partial class MainWindow
                         _draggingStartMarker = false;
                         try { e.Pointer.Capture(null); } catch (System.Exception swallowed2)
                         {
-                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                         }
                     }
                     return;
@@ -728,7 +798,7 @@ public partial class MainWindow
                         _draggingEndMarker = false;
                         try { e.Pointer.Capture(null); } catch (System.Exception swallowed)
                         {
-                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                         }
                     }
                     return;
@@ -1422,6 +1492,20 @@ public partial class MainWindow
         return outerCanvas;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // MEME_06 — THE CLOWN MARKER.
+    //
+    // Deliberately the SAME lollipop as the freeze camera and the zoom magnifier: a head, a stem,
+    // and a hairline that runs all the way down to cross the ruler at the exact instant. A user who
+    // has learned one of these markers has learned all three, and the crossing line is what makes
+    // the position readable to the pixel rather than approximately.
+    //
+    // It differs from the other two in ONE way, and that difference is the feature: a freeze and a
+    // zoom each expose two independently draggable ends, because their two ends are two separate
+    // decisions. A meme's length is the meme file's own length — it is not a decision at all — so
+    // its two markers are two views of ONE object. The Speed Editor therefore attaches drag to the
+    // BAND BETWEEN them and to neither head. See AttachMemeBandInteractions.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     public static Control CreateMemeTimelineCameraIcon()
     {
         return CreateMemeTimelineCameraIcon(false, 0, out _, out _);

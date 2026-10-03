@@ -62,6 +62,7 @@ public class RecoveryManagerTests : IDisposable
     [Fact]
     public void SaveState_PreservesExistingGranularSession()
     {
+        // 1. Initial state with granular_session written (as happens while editor is open)
         var initialState = new JsonObject
         {
             ["loadedVideoPath"] = "C:\\test\\video.mp4",
@@ -79,6 +80,7 @@ public class RecoveryManagerTests : IDisposable
 
         _recovery.SaveState(initialState);
 
+        // 2. An app-level background save happens (which does not have granular_session in its payload)
         var appSaveState = new JsonObject
         {
             ["loadedVideoPath"] = "C:\\test\\video.mp4",
@@ -88,6 +90,7 @@ public class RecoveryManagerTests : IDisposable
 
         _recovery.SaveState(appSaveState);
 
+        // 3. Load state and verify granular_session survived untouched
         var reloaded = _recovery.LoadState();
         Assert.NotNull(reloaded);
         Assert.True(reloaded.ContainsKey("granular_session"));
@@ -173,13 +176,14 @@ public class RecoveryManagerTests : IDisposable
         Assert.Equal(5800, item["zoom_end_ms"]?.GetValue<double>());
     }
 
+    // ── WRITEORDER_01 ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void WriteOrder_AQueuedSaveThatLosesTheRaceToAClearIsDropped()
     {
-        long queued = RecoveryManager.ReserveVersionForTests();
-        _recovery.ClearState();
-        _recovery.ApplySaveForTests(new JsonObject { ["stale"] = true }, queued);
+        long queued = RecoveryManager.ReserveVersionForTests();   // SaveStateAsync queued first...
+        _recovery.ClearState();                                    // ...the user undoes to empty...
+        _recovery.ApplySaveForTests(new JsonObject { ["stale"] = true }, queued);   // ...then the pool runs it
 
         Assert.False(File.Exists(_paths.RecoveryStateFile));
     }
@@ -187,7 +191,7 @@ public class RecoveryManagerTests : IDisposable
     [Fact]
     public void WriteOrder_OrderingSpansInstances()
     {
-        var other = new RecoveryManager(_paths);
+        var other = new RecoveryManager(_paths);   // e.g. ProjectRecoveryService vs MainWindow._recovery
         long queued = RecoveryManager.ReserveVersionForTests();
         other.SaveState(new JsonObject { ["newer"] = true });
         _recovery.ApplySaveForTests(new JsonObject { ["older"] = true }, queued);

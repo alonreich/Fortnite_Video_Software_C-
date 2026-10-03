@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/08_APPLICATION_COMPOSITION.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -49,11 +52,14 @@ public sealed class StorageProviderFilePicker : IFilePickerService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // The picker is a UI operation; callers may be on a worker (an autosave prompt, a recovery
+        // flow). InvokeAsync rather than Post because the caller needs the answer.
         return await Dispatcher.UIThread.InvokeAsync(async () =>
         {
             Window? owner = _windows.ActiveWindow;
             if (owner is null)
             {
+                // Degraded, not silent: a user who clicked Save and got nothing must be told why.
                 _faults.Degraded("PICKER",
                     "The file dialog could not open because no window is active. Nothing was saved — try again from the main window.");
                 return null;
@@ -94,6 +100,8 @@ public sealed class StorageProviderFilePicker : IFilePickerService
                 chosen = files.Count > 0 ? files[0].TryGetLocalPath() : null;
             }
 
+            // PICKERMEMORY_01 — persist the folder the moment we have one, before the caller gets
+            // a chance to fail, cancel or throw.
             if (chosen is not null) RememberDirectory(request.StartDirectoryKey, chosen);
 
             return chosen;
@@ -113,8 +121,10 @@ public sealed class StorageProviderFilePicker : IFilePickerService
         }
         catch (Exception ex)
         {
+            // Recoverable by definition: the dialog still opens, just at the OS default.
+            // The user's outcome is unchanged, so nothing reaches the screen.
             _faults.Recoverable("PICKER", $"Remembered folder '{remembered}' could not be resolved: {ex.Message}", ex);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }

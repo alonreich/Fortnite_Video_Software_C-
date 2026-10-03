@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -109,17 +111,6 @@ internal sealed class MergerPreviewGate
         {
             if (_state != MergerPreviewState.Starting) return false;
             _state = MergerPreviewState.Unavailable;
-            return true;
-        }
-    }
-
-    /// <summary>Begins tearing a LIVE preview down. Returns <c>false</c> (no-op) unless we were Ready.</summary>
-    public bool MarkStopping()
-    {
-        lock (_lock)
-        {
-            if (_state != MergerPreviewState.Ready) return false;
-            _state = MergerPreviewState.Stopping;
             return true;
         }
     }

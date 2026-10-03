@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
@@ -92,6 +95,7 @@ public static class MergeClipAnalyzer
             double intro = timing?.IntroSec ?? 0;
             if (timing is ExportTiming tt && tt.IntroFrames > 0)
             {
+                // FRAMESNAP_01 — the cut is the REAL pts of the first kept frame, not frames / nominal fps.
                 var pts = await FramePtsProbe.ProbeAsync(ffprobePath, path, tt.IntroFrames + 1).ConfigureAwait(false);
                 if (FramePtsProbe.IntroCutUs(pts, tt.IntroFrames) is long cutUs)
                 {

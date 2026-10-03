@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 
 namespace FreeVideoStudio.App.ViewModels;
@@ -171,13 +174,20 @@ public static class QualityLadder
 
         double labelBpp = Tiers[index].Bpp;
 
+        // ⚠️ The 1.5 is NOT cosmetic. The old code divided landscape's bits-per-pixel by it before
+        // naming the result, i.e. landscape has to carry 1.5x the bitrate to earn the same word.
+        // Dropping it here would silently re-grade every landscape export by two or three tiers.
         double rawBpp = isPortrait ? labelBpp : labelBpp * 1.5;
 
         double videoKbps = rawBpp * width * height * 60.0 / 1000.0;
         if (videoKbps < 100) videoKbps = 100;
 
+        // Same audio rule as the old forward pass, applied in the same order: assume the good
+        // bitrate, then drop to 64k only if the resulting file would be too small to afford it.
         double audioKbps = 192;
 
+        // QUALITY_03 — VIDEO is billed on discounted seconds; AUDIO is billed on all of them.
+        // A frozen picture still has a soundtrack running under it.
         double videoSec = BillableSeconds(durationSec, freezeSec);
 
         double targetMb = ((videoKbps * videoSec) + (audioKbps * durationSec)) / 8192.0;
@@ -197,9 +207,9 @@ public static class QualityLadder
     public static string ColorFor(int index)
     {
         index = ClampIndex(index);
-        if (index <= 2) return "#e74c3c";
-        if (index <= 6) return "White";
-        return "#2ecc71";
+        if (index <= 2) return "#e74c3c";                 // Pixelated..Low — genuinely poor
+        if (index <= 6) return "White";                   // Okay..Good+   — unremarkable, fine
+        return "#2ecc71";                                 // Sharp- and up — good
     }
 
     /// <summary>QUALITY_01 — "≈ 171 MB", or "1.9 GB" once megabytes stop being readable.</summary>

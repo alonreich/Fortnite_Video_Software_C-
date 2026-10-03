@@ -1,4 +1,7 @@
-﻿using System.Threading.Channels;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System.Threading.Channels;
 
 namespace FreeVideoStudio.App.Services;
 
@@ -40,6 +43,7 @@ public sealed class LatestEstimateWorker<T> : IDisposable
         {
             while (await _requests.Reader.WaitToReadAsync(_stop.Token).ConfigureAwait(false))
             {
+                // Throttle rather than wait for dragging to stop: continuous gestures still update.
                 await Task.Delay(80, _stop.Token).ConfigureAwait(false);
                 if (!_requests.Reader.TryRead(out var request)) continue;
                 OutputSizeEstimate result;
@@ -79,7 +83,7 @@ public sealed class LatestEstimateWorker<T> : IDisposable
             if (_disposed) return;
             _disposed = true;
             _requests.Writer.TryComplete();
-            _stop.Cancel();
+            _stop.Cancel(); // The worker owns disposal after any ffprobe has exited.
         }
     }
 }

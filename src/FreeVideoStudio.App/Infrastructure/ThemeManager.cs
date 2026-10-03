@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using Avalonia;
@@ -72,6 +75,12 @@ public static class ThemeManager
         ("AppFontSize60", 60),
         ("AppButtonMinHeight", 32), ("AppSpeedPresetMinWidth", 31),
         ("AppSpeedPresetMinHeight", 25), ("AppCloseBtnSize", 32),
+        // ISSUE_11 (Crop Tools audit round 6) — the Crop Tool's wizard step strip and its vertical
+        // zoom rail sized their boxes in raw device-independent pixels while the type inside them
+        // came from the AppFontSizeN family, so at ExtraLarge the digits grew and the dots, the
+        // rules between them and the zoom-rail text column did not. Registering the three geometry
+        // tokens here is what makes those boxes move with the rest of the suite. Nothing outside
+        // CropToolWindow.axaml references them.
         ("AppWizStepDotSize", 24), ("AppWizConnectorWidth", 10),
         ("AppZoomStripTextMaxWidth", 46),
     };

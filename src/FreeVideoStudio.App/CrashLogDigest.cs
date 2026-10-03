@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -71,9 +74,12 @@ internal static class CrashLogDigest
             }
             catch (OperationCanceledException swallowed)
             {
+                // wevtutil is NOT an interactive stdin tool, so the cooperative 'q' quit
+                // command is skipped: escalate straight to the bounded hard stop
+                // (Kill(entireProcessTree) → 2000 ms exit confirmation). Never throws.
                 await GracefulProcessTerminator.TerminateAsync(
                 proc, "EVENTLOG DIGEST", attemptQuitCommand: false).ConfigureAwait(false);
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             }
 
             string output = await readOutput.ConfigureAwait(false);
@@ -154,14 +160,14 @@ internal static class CrashLogDigest
     {
         try
         {
-            using var mutex = new System.Threading.Mutex(false, FreeVideoStudio.Core.Infrastructure.NamedSystemMutex.UserScopedName("FreeVideoStudioCrashDigestMutex"));
+            using var mutex = new System.Threading.Mutex(false, FreeVideoStudio.Core.Infrastructure.NamedSystemMutex.UserScopedName("FreeVideoStudioCrashDigestMutex"));   // USERSCOPE_01
             bool acquired = false;
             try
             {
                 try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException swallowed3)
                 {
                     acquired = true;
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
                 }
                 if (File.Exists(path))
                 {
@@ -186,14 +192,14 @@ internal static class CrashLogDigest
     {
         try
         {
-            using var mutex = new System.Threading.Mutex(false, FreeVideoStudio.Core.Infrastructure.NamedSystemMutex.UserScopedName("FreeVideoStudioCrashDigestMutex"));
+            using var mutex = new System.Threading.Mutex(false, FreeVideoStudio.Core.Infrastructure.NamedSystemMutex.UserScopedName("FreeVideoStudioCrashDigestMutex"));   // USERSCOPE_01
             bool acquired = false;
             try
             {
                 try { acquired = mutex.WaitOne(2000); } catch (System.Threading.AbandonedMutexException swallowed2)
                 {
                     acquired = true;
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 }
                 using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
                 using var sw = new StreamWriter(fs, new UTF8Encoding(false));

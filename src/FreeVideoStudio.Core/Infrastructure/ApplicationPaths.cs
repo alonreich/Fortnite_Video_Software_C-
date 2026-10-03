@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 namespace FreeVideoStudio.Core.Infrastructure;
 
 public sealed class ApplicationPaths
@@ -19,8 +22,6 @@ public sealed class ApplicationPaths
     public string ProgramDataRoot { get; }
 
     public string SessionStateFile => Path.Combine(ProgramDataRoot, "session_state.json");
-
-    public string WindowStateFile => Path.Combine(ProgramDataRoot, "window_state.json");
 
     public string CropCoordinatesFile => Path.Combine(ProgramDataRoot, "crops_coordinations.conf");
 
@@ -90,6 +91,26 @@ public sealed class ApplicationPaths
     public static string LegacyRoamingUiStateDirectory => Path.Combine(
         AppDataPaths.AppDataDir, "Settings");
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // USERSCOPE_01 — ALL MUTABLE APP STATE IS PER WINDOWS USER.
+    //
+    // The root used to be %ProgramData%\Free Video Studio. That is ONE folder for the whole
+    // machine, made writable with `icacls … /grant Users:F` (launched fire-and-forget, so the first
+    // writes raced the ACL change). Meanwhile SingleInstanceGuard is per user, so two Windows
+    // accounts could run the app side by side against the SAME recovery_v2.json,
+    // session_state.json, app_session.lock and settings. One account could be offered the other's
+    // "crashed" session (with its video paths), take over its session lock, and have its recovery
+    // state deleted when the other exited cleanly.
+    //
+    // Now the default root is %LOCALAPPDATA%\Free Video Studio. It is private to the user,
+    // needs no ACL change, and the uninstaller already purges it (DeploymentFootprint.LocalAppDataFolder
+    // is this same path). The first launch per user copies the legacy machine-wide state across
+    // once (settings, crop configuration, mask profiles, window layout, recent projects, undo
+    // sidecars). Locks, crash-recovery state, logs and voice-over recordings are NOT copied: the
+    // first three belong to a dead session or to another user, and existing projects keep
+    // pointing at the recordings where they are. The legacy folder is never modified.
+    // FVS_PROGRAMDATA_ROOT still overrides everything (dev builds, tests).
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>USERSCOPE_01 — the pre-migration machine-wide root. Read once for migration; never written.</summary>
     public static string LegacyMachineRoot
@@ -126,7 +147,7 @@ public sealed class ApplicationPaths
         }
 
         _ = AppDataPaths.AppDataDir;
-        _ = LegacyMigration.Value;
+        _ = LegacyMigration.Value;   // USERSCOPE_01 — once per process, idempotent per user
         return new ApplicationPaths(DefaultUserRoot);
     }
 
@@ -190,6 +211,8 @@ public sealed class ApplicationPaths
         }
         catch (Exception ex)
         {
+            // Not fatal: the app starts with defaults in the user root, and the marker was not
+            // written, so the copy is retried next launch.
             CoreLogger.Fail("Paths", $"USERSCOPE_01 — legacy state migration failed ({ex.Message}); starting with defaults.");
             return false;
         }
@@ -214,6 +237,8 @@ public sealed class ApplicationPaths
 
     public void EnsureWritableDirectories()
     {
+        // USERSCOPE_01 — the root is per-user, so no ACL change is needed (the old fire-and-forget
+        // `icacls … Users:F` grant raced the first writes and opened the folder to every account).
         Directory.CreateDirectory(ProgramDataRoot);
         Directory.CreateDirectory(LogsDirectory);
         Directory.CreateDirectory(TempDirectory);

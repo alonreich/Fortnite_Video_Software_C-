@@ -27,7 +27,7 @@ public class ThumbnailScraperTests
     [InlineData("", 0)]
     [InlineData("abc", 0)]
     [InlineData("-0.1", 0)]
-    [InlineData("5.0", 0)]
+    [InlineData("5.0", 0)]      // beyond MaxPlausibleIntroSec
     [InlineData("0.100", 0.1)]
     public void Tag_Validation(string? raw, double expected)
         => Assert.Equal(expected, IntroTag.Validate(raw, 10), 6);
@@ -85,23 +85,27 @@ public class ThumbnailScraperTests
         var tl = MergedTimeline.Build([Clip("a", 10), Clip("b", 10)], true, false);
         var (clip, src) = tl.Locate(10.0);
         Assert.Equal(1, clip);
-        Assert.Equal(0.1, src, 6);
-        Assert.Equal(10.0, tl.ToMerged(1, 0.05), 6);
+        Assert.Equal(0.1, src, 6);                 // first kept frame of clip 2, never its intro
+        Assert.Equal(10.0, tl.ToMerged(1, 0.05), 6); // a position inside a removed intro snaps forward
         Assert.Equal(15.0, tl.ToMerged(1, tl.Locate(15.0).SourceSec), 6);
     }
 
     [Fact]
     public void Remap_KeepsMusicOnTheSameClipMoment()
     {
+        // The user starts the song on second 5.0 of clip 3 with the scraper off...
         var off = MergedTimeline.Build([Clip("a", 10), Clip("b", 10), Clip("c", 10)], false, false);
         double placed = off.ToMerged(2, 5.0);
         Assert.Equal(25.0, placed, 6);
 
+        // ...then turns the scraper on: two intros vanish before it, the song moves 0.2 s earlier
+        // in merged time and still starts on second 5.0 of clip 3.
         var on = MergedTimeline.Build([Clip("a", 10), Clip("b", 10), Clip("c", 10)], true, false);
         double moved = on.Remap(off, placed);
         Assert.Equal(24.8, moved, 6);
         Assert.Equal((2, 5.0), (on.Locate(moved).ClipIndex, Math.Round(on.Locate(moved).SourceSec, 6)));
 
+        // Start and end of the whole merge stay the start and end.
         Assert.Equal(0, on.Remap(off, 0), 6);
         Assert.Equal(on.TotalSec, on.Remap(off, off.TotalSec), 6);
     }

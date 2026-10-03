@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 
@@ -27,6 +30,9 @@ namespace FreeVideoStudio.Core.Media;
 /// </summary>
 internal static class HudImageOps
 {
+    // ──────────────────────────────────────────────────────────────────────────────────────────
+    // COLOUR CONVERSION
+    // ──────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// <c>cv2.cvtColor(src, COLOR_BGR2GRAY)</c>. Same ITU-R BT.601 luma weights OpenCV uses
@@ -38,6 +44,7 @@ internal static class HudImageOps
         var gray = new byte[width * height];
         for (int i = 0, p = 0; i < gray.Length; i++, p += 3)
         {
+            // +0.5 then truncate == round-half-up, which is what OpenCV's fixed-point path does.
             gray[i] = (byte)((bgr[p] * 0.114 + bgr[p + 1] * 0.587 + bgr[p + 2] * 0.299) + 0.5);
         }
         return gray;
@@ -74,13 +81,16 @@ internal static class HudImageOps
 
             if (h < 0) h += 360.0;
 
-            hsv[p] = (byte)(h * 0.5 + 0.5);
+            hsv[p] = (byte)(h * 0.5 + 0.5);   // 0..179
             hsv[p + 1] = (byte)sat;
             hsv[p + 2] = (byte)v;
         }
         return hsv;
     }
 
+    // ──────────────────────────────────────────────────────────────────────────────────────────
+    // BLUR + THRESHOLD
+    // ──────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// OpenCV's <c>getGaussianKernel(n, sigma)</c>. When sigma is non-positive OpenCV derives it
@@ -123,6 +133,7 @@ internal static class HudImageOps
         var tmp = new double[width * height];
         var dst = new double[width * height];
 
+        // Horizontal pass.
         for (int y = 0; y < height; y++)
         {
             int row = y * width;
@@ -140,6 +151,7 @@ internal static class HudImageOps
             }
         }
 
+        // Vertical pass.
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -186,7 +198,7 @@ internal static class HudImageOps
     /// </summary>
     public static byte[] AdaptiveThresholdGaussianInv(byte[] src, int width, int height, int blockSize, double c)
     {
-        if ((blockSize & 1) == 0) blockSize++;
+        if ((blockSize & 1) == 0) blockSize++;   // OpenCV requires odd; be forgiving rather than throw.
 
         double[] mean = GaussianBlurToDouble(src, width, height, blockSize, 0);
         var dst = new byte[src.Length];
@@ -208,6 +220,7 @@ internal static class HudImageOps
     /// <summary>
     /// <c>cv2.normalize(src, None, 0, 255, NORM_MINMAX)</c> for a float map, rounded to bytes.
     /// A flat map (max == min) normalises to all-zero, matching OpenCV's behaviour when the range
+    /// collapses.
     /// collapses. When <paramref name="invert"/> is true, inverts the output so min maps to 255 and max to 0.
     /// </summary>
     public static byte[] NormalizeMinMaxToByte(double[] src, bool invert = false)
@@ -247,6 +260,9 @@ internal static class HudImageOps
         return dst;
     }
 
+    // ──────────────────────────────────────────────────────────────────────────────────────────
+    // MORPHOLOGY
+    // ──────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Rectangular dilate — <c>cv2.dilate(src, getStructuringElement(MORPH_RECT, (w,h)))</c>,
@@ -340,6 +356,9 @@ internal static class HudImageOps
         return dst;
     }
 
+    // ──────────────────────────────────────────────────────────────────────────────────────────
+    // EDGES
+    // ──────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// <c>cv2.Canny(src, low, high)</c> with the default aperture 3 and <c>L2gradient=False</c>.
@@ -358,7 +377,7 @@ internal static class HudImageOps
     public static byte[] Canny(byte[] src, int width, int height, int low, int high)
     {
         var mag = new int[width * height];
-        var dir = new byte[width * height];
+        var dir = new byte[width * height];   // 0 = horizontal, 1 = 45, 2 = vertical, 3 = 135
 
         for (int y = 1; y < height - 1; y++)
         {
@@ -374,6 +393,7 @@ internal static class HudImageOps
 
                 mag[i] = Math.Abs(gx) + Math.Abs(gy);
 
+                // Sector by gradient angle, the usual four-way split at 22.5 degrees.
                 int ax = Math.Abs(gx), ay = Math.Abs(gy);
                 if (ay <= ax * 0.4142135623730951) dir[i] = 0;
                 else if (ax <= ay * 0.4142135623730951) dir[i] = 2;
@@ -465,6 +485,9 @@ internal static class HudImageOps
         return (gx, gy);
     }
 
+    // ──────────────────────────────────────────────────────────────────────────────────────────
+    // CONNECTED COMPONENTS
+    // ──────────────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>One foreground blob: its bounding box and how many pixels it actually contains.</summary>
     internal readonly record struct Blob(int X, int Y, int Width, int Height, int Area);

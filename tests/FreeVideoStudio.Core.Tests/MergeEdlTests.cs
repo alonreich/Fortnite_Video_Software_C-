@@ -38,7 +38,7 @@ public class MergeEdlTests
     };
 
     [Fact]
-    public void StructuralEquality_IgnoresListInstances()
+    public void StructuralEquality_IgnoresListInstances()   // T2.1a
     {
         var x = Sample();
         var y = Sample();
@@ -48,11 +48,11 @@ public class MergeEdlTests
     }
 
     [Fact]
-    public void AnyChange_BreaksEquality()
+    public void AnyChange_BreaksEquality()   // T2.1a
     {
         var x = Sample();
         Assert.NotEqual(x, x with { BaseSpeed = 1.3 });
-        Assert.NotEqual(x, x with { Clips = [x.Clips[1], x.Clips[0]] });
+        Assert.NotEqual(x, x with { Clips = [x.Clips[1], x.Clips[0]] });   // reorder
         var c0 = x.Clips[0];
         var moved = c0 with { Effects = c0.Effects with { Freezes = [new EdlFreeze(3_000_001, 1.5)] } };
         Assert.NotEqual(x, x with { Clips = [moved, x.Clips[1]] });
@@ -60,11 +60,11 @@ public class MergeEdlTests
     }
 
     [Fact]
-    public void Json_RoundTrip_IsLossless()
+    public void Json_RoundTrip_IsLossless()   // T2.1b
     {
         var x = Sample();
         string json = x.ToJson();
-        Assert.Contains("\"AtEnd\"", json);
+        Assert.Contains("\"AtEnd\"", json);   // enums are readable strings
         var back = MergeEdl.FromJson(json);
         Assert.NotNull(back);
         Assert.Equal(x, back);
@@ -106,8 +106,8 @@ public class MergeEdlTests
         Assert.All(edl.Clips, c => Assert.True(c.Effects.IsEmpty));
         Assert.Empty(edl.Clips[0].Effects.Cuts);
         Assert.Empty(edl.Music!.FilePaths);
-        Assert.All(edl.Clips, c => Assert.NotEqual(Guid.Empty, c.ClipId));
-        Assert.True(edl.ScraperEnabled);
+        Assert.All(edl.Clips, c => Assert.NotEqual(Guid.Empty, c.ClipId));   // a missing id gets a fresh one, never Guid.Empty
+        Assert.True(edl.ScraperEnabled);                                       // missing scalars take their DEFAULTS, not 0/false
         Assert.Equal(1.0, edl.BaseSpeed);
         Assert.Equal(1.0, edl.Music.MusicVolume);
         Assert.True(edl.Music.Ducking);

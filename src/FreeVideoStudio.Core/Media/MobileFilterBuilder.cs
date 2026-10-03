@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -54,7 +57,7 @@ public class MobileFilterBuilder
             {
                 string key = kvp.Key;
                 
-                if (HudConfig.IsRetiredRole(key)) continue;
+                if (HudConfig.IsRetiredRole(key)) continue; // NO_BOSS_HP_01: also guard unsanitized callers.
                 if (key == "spectating" && !showSpectating) continue;
                 else if (key == "team" && !showTeammates) continue;
 
@@ -62,6 +65,11 @@ public class MobileFilterBuilder
             }
         }
 
+        // ZTIEBREAK_01 — List<T>.Sort is an UNSTABLE introsort, so two layers sharing a z order
+        // came out in an order decided by the pivot, not by the document: the same config could
+        // stack them one way in a 3-layer export and the other way in a 5-layer export, and the
+        // composer in Crop Tools (which breaks the same tie by element key) agreed with neither.
+        // This is the shared tie-break rule: ascending Z, then element key, OrdinalIgnoreCase.
         activeLayers = activeLayers
             .OrderBy(l => l.Z)
             .ThenBy(l => l.ConfKey, StringComparer.OrdinalIgnoreCase)
@@ -134,6 +142,16 @@ public class MobileFilterBuilder
                       $"crop={CoordinateConstants.TargetW}:{CoordinateConstants.TargetH}:{plan.cropX}:{plan.cropY}[main_base]");
             currV = "[main_base]";
 
+            // NOMASK_01 — THE HUD PAD MUST STILL BE TERMINATED WHEN THERE ARE NO LAYERS.
+            // ProcessWorker ALWAYS hands this method a HUD pad: either the granular chain's
+            // [gVHud], or a `split=2[v_mob_main][v_mob_hud]` it inserts when there is none. With
+            // zero active layers nothing above consumes it, and an unconnected output pad makes
+            // ffmpeg reject the whole filter_complex — the export dies before it encodes a frame.
+            // The landscape branch in ProcessWorker already terminates the same pad with nullsink
+            // for exactly this reason; this is the portrait counterpart.
+            // This branch was unreachable until the reserved "No Mask Profile" existed (every
+            // shipped profile has layers), which is why the fault never surfaced.
+            // DO NOT remove this because "the pad looks unused" — unused is precisely the problem.
             if (!string.IsNullOrEmpty(inputHudPad) && inputHudPad != inputMainPad)
             {
                 parts.Add($"{inputHudPad}nullsink");
@@ -191,13 +209,19 @@ internal static class MobileFilterBuilderExtensions
             try { parsed = (double)scaleNode!; }
             catch (System.Exception swallowed)
             {
+                // ZEROSCALE_01 — the old code checked `!= Frac.Zero`, which let a NEGATIVE fraction
+                // straight through; and the numeric branch above had no check at all, so a JSON 0
+                // became scale 0. Either one reaches QuantizeBackendSizeInternal, whose
+                // Math.Max(factor, ...) floor silently rewrites the layer as a 32x32 sliver, and a
+                // negative would land there via a negative Frac. Only a strictly positive scale is
+                // meaningful; anything else falls back to 1/1 and is logged.
                 try { parsed = Frac.FromString(scaleNode!.ToString()).ToDouble(); }
                 catch (System.Exception swallowed2)
                 {
                 parsed = double.NaN;
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 }
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             }
 
             if (double.IsFinite(parsed) && parsed > 0.0)
@@ -226,6 +250,8 @@ internal static class MobileFilterBuilderExtensions
             try { z = zNode.GetValue<int>(); }
             catch
             {
+                // A z order written as 20.0, "20" or by another tool must not silently become 50 —
+                // that is a stacking change the user never asked for.
                 try { z = (int)System.Math.Round(double.Parse(zNode.ToString(), System.Globalization.CultureInfo.InvariantCulture)); }
                 catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
             }

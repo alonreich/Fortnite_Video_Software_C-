@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -62,8 +65,12 @@ public sealed record ProjectDocument
     /// <b>3 — PROJ_12.</b> Added <see cref="ProjectMerge.Edl"/> (the Video Merger's full edit list:
     /// effects, thumbnail, music). It lives INSIDE <c>merge</c>, where a v2 reader keeps no unknown
     /// keys, so a v2 build would silently drop the effects; refusing the file is the safer answer.
+    /// <b>4 — MEMEMODE_01.</b> Each meme carries <c>mode</c> / <c>corner</c> / <c>size</c> / <c>sound</c>.
+    /// They live INSIDE a meme object, where a v3 reader keeps no unknown keys: it would read a corner
+    /// overlay as a full-screen cutaway (a different, longer video) and drop the keys on save. Refused
+    /// instead. Files at 1..3 read unchanged: no keys = full-screen with sound.
     /// </remarks>
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
 
     /// <summary>
     /// PROJ_02 — the oldest schema this build can still READ. A file below this is refused with an
@@ -180,9 +187,8 @@ public sealed record ProjectDocument
     /// </summary>
     public OutputTimeline BuildTimeline()
     {
-        var insertions = new List<OutputTimeline.Insertion>(Memes.Count);
-        foreach (MemePlacement m in Memes)
-            insertions.Add(new OutputTimeline.Insertion(m.AtSourceSecRelative, m.DurationSec, m.Id));
+        // MEMEMODE_01 — only full-screen memes are insertions; a corner overlay adds zero seconds.
+        var insertions = MemePlacement.ToInsertions(Memes);
 
         return OutputTimeline.Create(
             EffectiveDurationMs,
@@ -219,10 +225,16 @@ public sealed record ProjectDocument
             return SourceIntegrity.Missing;
         }
 
+        // A zero fingerprint means the project predates fingerprinting, or the probe failed when it
+        // was saved. Reporting Changed there would nag the user about every older project, so an
+        // absent fingerprint is treated as "cannot tell", which is the honest answer.
         if (Source.SizeBytes <= 0) return SourceIntegrity.Unknown;
 
         if (info.Length != Source.SizeBytes) return SourceIntegrity.Changed;
 
+        // Modification time is compared at whole-second resolution. Copying a file between
+        // filesystems routinely perturbs the sub-second part without the bytes differing, and a
+        // false "your video changed" warning teaches users to dismiss the real one.
         long stored = Source.ModifiedUtcSeconds;
         if (stored > 0)
         {
@@ -306,15 +318,6 @@ public sealed record ProjectDocument
         return true;
     }
 
-    public static ProjectDocument ForClip(SourceClip clip, string? title = null) => new()
-    {
-        Source = clip,
-        Title = string.IsNullOrWhiteSpace(title)
-            ? SafeTitleFrom(clip.FilePath)
-            : title!,
-        TrimmedDurationMs = clip.DurationMs,
-    };
-
     private static string SafeTitleFrom(string path)
     {
         try
@@ -324,7 +327,7 @@ public sealed record ProjectDocument
         }
         catch (ArgumentException swallowed)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return "Untitled";
         }
     }
@@ -430,9 +433,10 @@ public sealed record ProjectMask(string ProfileName, string Fingerprint, JsonObj
     {
         if (config is null) return string.Empty;
 
+        // Serialise with a canonical key order so a reordered-but-identical document matches.
         string canonical = Canonicalise(config);
         byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical));
-        return Convert.ToHexString(hash, 0, 8);
+        return Convert.ToHexString(hash, 0, 8);   // 16 hex chars: plenty to notice an edit, short enough to print.
     }
 
     private static string Canonicalise(JsonNode? node)

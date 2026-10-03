@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -29,15 +32,26 @@ public sealed class MemeItem
     public bool IsDownloadAction { get; init; }
 
     /// <summary>
-    /// DOWNLOAD_01 — which library this action row fetches: "mp4" for video memes, "jpeg" for
-    /// image memes. Empty on a real meme. Songs have their own button in the Music Wizard.
-    /// The two used to be a SINGLE row that pulled both folders, so a user who wanted one more
-    /// reaction image had to download every video meme too, with no way to tell them apart while
-    /// it ran.
+    /// DOWNLOAD_01 / MEMECAT_01 — which kind of meme this action row fetches. Null on a real meme.
+    /// Songs have their own button in the Music Wizard.
+    /// The two used to be a SINGLE row that pulled every meme, so a user who wanted one more
+    /// reaction image had to download every video meme too. Both kinds now live in ONE repository
+    /// folder (`meme/`, MEMEFOLDER_01) and the category filters it by extension.
     /// </summary>
-    public string DownloadCategory { get; init; } = "";
+    public MemeCategory? DownloadCategory { get; init; }
 
     public override string ToString() => FileName;
+}
+
+/// <summary>
+/// MEMECAT_01 — the two kinds of meme the library holds. Replaces the "mp4" / "jpeg" strings that
+/// were compared in three files and only meant something while the repository had one folder per
+/// kind.
+/// </summary>
+public enum MemeCategory
+{
+    Video,
+    Image,
 }
 
 /// <summary>
@@ -53,10 +67,22 @@ public static class MemeCatalog
     private static readonly string[] AudioExts = { ".mp3", ".wav", ".m4a", ".ogg", ".flac" };
 
     private const string CloudOwner = "alonreich";
-    private const string CloudRepo = "Fortnite_Video_Software_C-";
+    private const string CloudRepo = "Free_Video_Studio";
 
-    /// <summary>ISSUE_10 — repo folders holding meme assets (video + image).</summary>
-    private static readonly string[] MemeCloudFolders = { "mp4", "jpeg" };
+    /// <summary>
+    /// MEMEFOLDER_01 — the ONE repository folder holding every meme, video and picture alike.
+    /// It replaced the separate `mp4/` and `jpeg/` folders. Clients older than this change still
+    /// ask for those folders and get a "not found" error — updating the app is the fix.
+    /// </summary>
+    public const string CloudMemeFolder = "meme";
+
+    /// <summary>MEMECAT_01 — the file extensions that belong to a meme category.</summary>
+    public static string[] ExtensionsFor(MemeCategory category) =>
+        category == MemeCategory.Image ? ImageExts : VideoExts;
+
+    /// <summary>MEMECAT_01 — user-facing plural label for a category.</summary>
+    public static string LabelFor(MemeCategory category) =>
+        category == MemeCategory.Image ? "meme pictures" : "meme videos";
 
     /// <summary>
     /// ISSUE_10 — repo folder holding the song library.
@@ -64,7 +90,7 @@ public static class MemeCatalog
     /// the sync only ever covered mp4 and jpeg, so there was no way for a user to get the songs
     /// — the music library was bring-your-own with no in-app path to the shared collection.
     /// </summary>
-    private static readonly string[] SongCloudFolders = { "mp3" };
+    private const string CloudSongFolder = "mp3";
 
     /// <summary>ISSUE_11 — per-file progress for the sync UI.</summary>
     /// <param name="FileName">The file currently being fetched.</param>
@@ -110,9 +136,11 @@ public static class MemeCatalog
     {
         long startTicks = Environment.TickCount64;
 
+        // ── PHASE A: enumeration + cheap filtering ──────────────────────────────────────────
         List<ScanCandidate> candidates = await Task.Run(() => EnumerateCandidates(directory)).ConfigureAwait(false);
         if (candidates.Count == 0) return new List<MemeItem>();
 
+        // ── PHASE B: dimensions — cache first, bounded-concurrency probe for the misses ──────
         MemeDimensionCache cache = MemeDimensionCache.Load();
 
         var misses = new List<ScanCandidate>();
@@ -131,6 +159,9 @@ public static class MemeCatalog
 
         if (misses.Count > 0)
         {
+            // MEMESCAN_01 — the ceiling exists because each lane is a live ffprobe PROCESS, not a
+            // thread. Saturating every core with child processes during app start would fight the
+            // preview decode the user is actually looking at.
             int lanes = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
 
             await Parallel.ForEachAsync(
@@ -159,23 +190,30 @@ public static class MemeCatalog
                     }
                     catch (Exception ex)
                     {
+                        // §3 — one bad file may never fault the whole pass.
                         RuntimeLog.Info("Memes", $"Dimension probe failed for '{c.FileName}': {ex.Message}");
                     }
                 }).ConfigureAwait(false);
 
             foreach (ScanCandidate c in misses)
             {
+                // Put() ignores non-positive dimensions, so a failed probe is never cached and the
+                // export-crash guard below can never be satisfied from stale data.
                 cache.Put(c.FullPath, c.Length, c.MTimeTicks, c.Width, c.Height);
             }
 
             cache.Save();
         }
 
+        // ── PHASE C: exclusion + assembly, in the PHASE A order ─────────────────────────────
         var items = new List<MemeItem>(candidates.Count);
         int excluded = 0;
 
         foreach (ScanCandidate c in candidates)
         {
+            // ⚠️ LOAD-BEARING GUARD. A video with no usable geometry crashes the export filter
+            // graph. Images are deliberately NOT subject to this — a Skia decode failure leaves a
+            // usable item that simply has no aspect-ratio hint for the §2 UI guardrail.
             if (!c.IsImage && (c.Width <= 0 || c.Height <= 0))
             {
                 RuntimeLog.Fail("Memes", $"Excluding unreadable video meme '{c.FileName}' (failed to probe; would crash export).");
@@ -222,6 +260,9 @@ public static class MemeCatalog
         var candidates = new List<ScanCandidate>();
         if (!Directory.Exists(directory)) return candidates;
 
+        // §3 — UnauthorizedAccessException from here PROPAGATES on purpose: the Settings
+        // meme-folder change flow catches it to block the path change and revert. Do NOT wrap this
+        // in a catch-all.
         string[] files = Directory.GetFiles(directory);
 
         foreach (string f in files.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
@@ -241,10 +282,13 @@ public static class MemeCatalog
             }
             catch (System.Exception swallowed2)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+                // Unreadable metadata — same disposition as the original zero-byte guard: skip.
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 continue;
             }
 
+            // ⚠️ LOAD-BEARING GUARD. Zero bytes means an unresolved Git-LFS pointer or a
+            // half-finished download. It must be skipped BEFORE anything tries to probe it.
             if (length == 0) continue;
 
             candidates.Add(new ScanCandidate
@@ -280,33 +324,22 @@ public static class MemeCatalog
         }
         catch (System.Exception swallowed3)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
 
-    /// <summary>ISSUE_10 — downloads missing MEME assets (mp4 + jpeg folders).</summary>
-    public static Task<(int downloaded, string? error)> SyncFromCloudAsync(
+    /// <summary>
+    /// DOWNLOAD_01 / MEMEFOLDER_01 — downloads the missing memes of ONE category from the single
+    /// repository `meme/` folder into <paramref name="targetDirectory"/>.
+    /// </summary>
+    public static Task<(int downloaded, string? error)> SyncMemesAsync(
         string targetDirectory,
+        MemeCategory category,
         IProgress<SyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
-        => SyncFoldersAsync(targetDirectory, MemeCloudFolders,
-                            VideoExts.Concat(ImageExts).ToArray(), "Memes", progress, cancellationToken);
-
-
-    /// <summary>DOWNLOAD_01 — video memes only (repo `mp4\`).</summary>
-    public static Task<(int downloaded, string? error)> SyncVideoMemesAsync(
-        string targetDirectory,
-        IProgress<SyncProgress>? progress = null,
-        CancellationToken cancellationToken = default)
-        => SyncFoldersAsync(targetDirectory, new[] { "mp4" }, VideoExts, "Video memes", progress, cancellationToken);
-
-    /// <summary>DOWNLOAD_01 — image memes only (repo `jpeg\`).</summary>
-    public static Task<(int downloaded, string? error)> SyncImageMemesAsync(
-        string targetDirectory,
-        IProgress<SyncProgress>? progress = null,
-        CancellationToken cancellationToken = default)
-        => SyncFoldersAsync(targetDirectory, new[] { "jpeg" }, ImageExts, "Image memes", progress, cancellationToken);
+        => SyncFolderAsync(targetDirectory, CloudMemeFolder, ExtensionsFor(category),
+                           category == MemeCategory.Image ? "Image memes" : "Video memes", progress, cancellationToken);
 
     /// <summary>
     /// ISSUE_10 — downloads missing SONGS (mp3 folder) into the user's music directory.
@@ -317,22 +350,39 @@ public static class MemeCatalog
         string targetDirectory,
         IProgress<SyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
-        => SyncFoldersAsync(targetDirectory, SongCloudFolders, AudioExts, "Songs", progress, cancellationToken);
+        => SyncFolderAsync(targetDirectory, CloudSongFolder, AudioExts, "Songs", progress, cancellationToken);
 
     /// <summary>
     /// Shared delta-sync engine.
     ///
-    /// ISSUE_11 — three things the original lacked:
-    ///   * <paramref name="progress"/>: the listing is enumerated FIRST so a real total is known,
-    ///     then each file reports as it completes. Previously the UI sat silent for minutes.
-    ///   * <paramref name="cancellationToken"/>: the user can abandon a slow sync. A cancelled
-    ///     transfer leaves no partial file behind (.part is deleted).
-    ///   * distinct error messages: rate-limit, offline, and per-file failures no longer all
-    ///     collapse into the single string "Sync temporarily unavailable".
+    /// ISSUE_11 — progress (the listing is enumerated FIRST so a real total is known), cancellation
+    /// (a cancelled transfer leaves no partial file behind), and distinct error messages.
+    ///
+    /// <para>
+    /// MEMESYNC_01 — WHY THE LISTING USES THE GIT TREES API AND NOT /contents.
+    /// The contents API returns at most 1,000 entries per folder and has no paging, so a library
+    /// past 1,000 files silently stopped growing. `git/trees/HEAD:{folder}` returns up to 100,000
+    /// entries in one call (and says so with `truncated` beyond that), and it reports each blob's
+    /// SIZE, which MEMESYNC_03 below depends on.
+    /// </para>
+    /// <para>
+    /// MEMESYNC_02 — A MISSING FOLDER IS AN ERROR, NOT "NOTHING NEW". A 404 on the listing used to
+    /// be logged and skipped, so the sync reported zero files to fetch and the UI said "You already
+    /// have everything" — a false statement the user had no way to see through. Any listing failure
+    /// now returns an error message.
+    /// </para>
+    /// <para>
+    /// MEMESYNC_03 — LFS FILES GO STRAIGHT TO THE LFS HOST. Media is Git-LFS tracked, so a raw
+    /// download of it returns a ~130-byte pointer file. The old engine downloaded that pointer
+    /// first, noticed, and then downloaded the real file — two requests per file. A blob whose
+    /// listed size is at most <see cref="LfsPointerMaxBytes"/> is a pointer, so its first request
+    /// goes to media.githubusercontent.com. The other host stays as the fallback, because
+    /// media.githubusercontent.com answers 404 for a file that is NOT in LFS.
+    /// </para>
     /// </summary>
-    private static async Task<(int downloaded, string? error)> SyncFoldersAsync(
+    private static async Task<(int downloaded, string? error)> SyncFolderAsync(
         string targetDirectory,
-        string[] cloudFolders,
+        string cloudFolder,
         string[] acceptedExtensions,
         string logTag,
         IProgress<SyncProgress>? progress,
@@ -351,97 +401,102 @@ public static class MemeCatalog
             http.DefaultRequestHeaders.UserAgent.ParseAdd("FreeVideoStudio");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
-            var pending = new List<(string Name, string Url)>();
+            cancellationToken.ThrowIfCancellationRequested();
 
-            foreach (string folder in cloudFolders)
+            string listingUrl = $"https://api.github.com/repos/{CloudOwner}/{CloudRepo}/git/trees/HEAD:{cloudFolder}";
+            using var listingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            listingCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+            JsonArray tree;
+            using (var resp = await http.GetAsync(listingUrl, listingCts.Token))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                string url = $"https://api.github.com/repos/{CloudOwner}/{CloudRepo}/contents/{folder}";
-
-                using var listingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                listingCts.CancelAfter(TimeSpan.FromSeconds(30));
-
-                using var resp = await http.GetAsync(url, listingCts.Token);
-
-                if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden ||
+                    (int)resp.StatusCode == 429)
                 {
-                    RuntimeLog.Fail(logTag, "Cloud sync halted: GitHub API rate limit (HTTP 403).");
-                    return (downloaded,
-                        "GitHub is rate-limiting this connection right now. Try again in an hour.");
+                    RuntimeLog.Fail(logTag, $"Cloud sync halted: GitHub API rate limit (HTTP {(int)resp.StatusCode}).");
+                    return (0, "GitHub is rate-limiting this connection right now. Try again in an hour.");
                 }
                 if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    RuntimeLog.Fail(logTag, $"Cloud sync: folder '{folder}' does not exist in the repository.");
-                    continue;
+                    // MEMESYNC_02 — never "you already have everything".
+                    RuntimeLog.Fail(logTag, $"Cloud sync: folder '{cloudFolder}' does not exist in the repository.");
+                    return (0, "The online library could not be found. Update Free Video Studio to the latest version and try again.");
                 }
                 if (!resp.IsSuccessStatusCode)
                 {
-                    RuntimeLog.Fail(logTag, $"Cloud sync: listing '{folder}' failed with HTTP {(int)resp.StatusCode}.");
-                    continue;
+                    RuntimeLog.Fail(logTag, $"Cloud sync: listing '{cloudFolder}' failed with HTTP {(int)resp.StatusCode}.");
+                    return (0, $"The online library could not be listed (HTTP {(int)resp.StatusCode}). Try again later.");
                 }
 
-                if (JsonNode.Parse(await resp.Content.ReadAsStringAsync(cancellationToken)) is not JsonArray arr) continue;
-
-                foreach (var node in arr)
+                JsonNode? root = JsonNode.Parse(await resp.Content.ReadAsStringAsync(cancellationToken));
+                if (root?["tree"] is not JsonArray arr)
                 {
-                    string? name = node?["name"]?.ToString();
-                    string? dl = node?["download_url"]?.ToString();
-                    string? type = node?["type"]?.ToString();
-                    if (name == null || dl == null || type != "file") continue;
-
-                    if (name.Contains('/') || name.Contains('\\') || name.Contains("..")) continue;
-
-                    string ext = Path.GetExtension(name).ToLowerInvariant();
-                    if (!acceptedExtensions.Contains(ext)) continue;
-
-                    string existing = Path.Combine(targetDirectory, name);
-                    if (local.Contains(name) && File.Exists(existing)
-                        && new FileInfo(existing).Length > 0 && !IsLfsPointer(existing))
-                        continue;
-
-                    pending.Add((name, dl));
+                    RuntimeLog.Fail(logTag, $"Cloud sync: listing '{cloudFolder}' had no tree.");
+                    return (0, "The online library answered with something unexpected. Try again later.");
                 }
+                if (root["truncated"]?.GetValue<bool>() == true)
+                    RuntimeLog.Fail(logTag, $"Cloud sync: listing '{cloudFolder}' was truncated by GitHub; only the listed files are fetched.");
+                tree = arr;
+            }
+
+            var pending = new List<(string Name, long Size)>();
+            foreach (var node in tree)
+            {
+                string? name = node?["path"]?.ToString();
+                string? type = node?["type"]?.ToString();
+                if (name == null || type != "blob") continue;
+                if (name.Contains('/') || name.Contains('\\') || name.Contains("..")) continue;
+                if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) continue;
+
+                string ext = Path.GetExtension(name).ToLowerInvariant();
+                if (!acceptedExtensions.Contains(ext)) continue;
+
+                string existing = Path.Combine(targetDirectory, name);
+                if (local.Contains(name) && File.Exists(existing)
+                    && new FileInfo(existing).Length > 0 && !IsLfsPointer(existing))
+                    continue;
+
+                long size = 0;
+                try { size = node?["size"]?.GetValue<long>() ?? 0; }
+                catch (Exception ex) { RuntimeLog.Swallowed(ex); }
+                pending.Add((name, size));
             }
 
             int total = pending.Count;
-            RuntimeLog.Info(logTag, $"Cloud sync: {total} file(s) to fetch.");
+            RuntimeLog.Info(logTag, $"Cloud sync: {total} file(s) to fetch from '{cloudFolder}'.");
             progress?.Report(new SyncProgress(string.Empty, 0, total));
 
             if (total == 0) return (0, null);
 
             int failures = 0;
-            foreach ((string name, string dl) in pending)
+            foreach ((string name, long size) in pending)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 progress?.Report(new SyncProgress(name, downloaded, total));
 
                 string dest = Path.Combine(targetDirectory, name);
                 string tmp = dest + ".part";
+                string escaped = Uri.EscapeDataString(name);
+                string rawUrl = $"https://raw.githubusercontent.com/{CloudOwner}/{CloudRepo}/HEAD/{cloudFolder}/{escaped}";
+                string lfsUrl = $"https://media.githubusercontent.com/media/{CloudOwner}/{CloudRepo}/HEAD/{cloudFolder}/{escaped}";
+
+                // MEMESYNC_03 — a pointer-sized blob is an LFS file: ask the LFS host first.
+                bool lfsFirst = size > 0 && size <= LfsPointerMaxBytes;
+                string[] urls = lfsFirst ? new[] { lfsUrl, rawUrl } : new[] { rawUrl, lfsUrl };
 
                 try
                 {
-                    using (var s = await http.GetStreamAsync(dl, cancellationToken))
-                    using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+                    bool ok = false;
+                    foreach (string url in urls)
                     {
-                        await s.CopyToAsync(fs, cancellationToken);
+                        if (await TryDownloadAsync(http, url, tmp, cancellationToken)) { ok = true; break; }
                     }
 
-                    if (IsLfsPointer(tmp))
-                    {
-                        string mediaUrl = dl.Replace("raw.githubusercontent.com", "media.githubusercontent.com/media");
-                        using (var s2 = await http.GetStreamAsync(mediaUrl, cancellationToken))
-                        using (var fs2 = new FileStream(tmp, FileMode.Create, FileAccess.Write))
-                        {
-                            await s2.CopyToAsync(fs2, cancellationToken);
-                        }
-                    }
-
-                    if (IsLfsPointer(tmp) || new FileInfo(tmp).Length == 0)
+                    if (!ok)
                     {
                         try { File.Delete(tmp); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
                         failures++;
-                        RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' skipped (still an LFS pointer / empty after fetch).");
+                        RuntimeLog.Fail(logTag, $"Cloud sync: '{name}' could not be fetched from either host.");
                         continue;
                     }
 
@@ -491,5 +546,24 @@ public static class MemeCatalog
             RuntimeLog.Fail(logTag, $"Cloud sync failed: {ex.Message}");
             return (downloaded, $"The download could not be completed: {ex.Message}");
         }
+    }
+
+    /// <summary>MEMESYNC_03 — a Git-LFS pointer file is ~130 bytes; anything this small is one.</summary>
+    private const long LfsPointerMaxBytes = 1024;
+
+    /// <summary>
+    /// MEMESYNC_03 — one attempt against one host. True only when <paramref name="tmp"/> now holds
+    /// real, non-empty content (not an LFS pointer). A 404 is a normal "not on this host" answer.
+    /// </summary>
+    private static async Task<bool> TryDownloadAsync(HttpClient http, string url, string tmp, CancellationToken ct)
+    {
+        using (var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
+        {
+            if (!resp.IsSuccessStatusCode) return false;
+            using var s = await resp.Content.ReadAsStreamAsync(ct);
+            using var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write);
+            await s.CopyToAsync(fs, ct);
+        }
+        return new FileInfo(tmp).Length > 0 && !IsLfsPointer(tmp);
     }
 }

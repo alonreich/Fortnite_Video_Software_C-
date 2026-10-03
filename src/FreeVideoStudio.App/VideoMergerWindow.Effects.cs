@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -38,7 +44,8 @@ public partial class VideoMergerWindow
         btn.IsEnabled = !_granularOpen && VideoQueue.Count > 0 && TimelineMatchesQueue();
         int effects;
         try { effects = CurrentEdl.Clips.Count(c => !c.Effects.IsEmpty); }
-        catch (Exception ex) { RuntimeLog.Swallowed(ex); effects = 0; }
+        catch (Exception ex) { RuntimeLog.Swallowed(ex); effects = 0; }   // EDLNULL_01 — a paint must never take the app down
+        // P10 (item 3) — the Main App's GRANULAR SPEED / EDIT SPEEDS states (MainWindow.SetGranularButtonActive).
         if (effects > 0)
         {
             btn.Classes.Remove("Primary");
@@ -141,10 +148,10 @@ public partial class VideoMergerWindow
                 editor.ResultCuts.ToList(), editor.ResultMemes.ToList(), editor.ResultBaseSpeed);
             var next = source.FromEditor(result, CurrentEdl);
 
-            _lastEdl = next;
+            _lastEdl = next;   // effects travel forward by ClipId into the capture below
             if (Math.Abs(_baseSpeed - next.BaseSpeed) > 0.001)
             {
-                _restoringSession = true;
+                _restoringSession = true;   // the wheel moving is part of THIS step, not its own
                 try { ApplySpeedPreset(next.BaseSpeed); }
                 finally { _restoringSession = false; }
             }

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -297,42 +300,6 @@ public static class ErrorReporter
             if (haystack.Contains(needle, StringComparison.OrdinalIgnoreCase)) return plain;
         }
         return string.Empty;
-    }
-
-    /// <summary>
-    /// Reads the last N lines of the active log without loading the whole (up to 10 MB) file.
-    /// Read-share is permissive because the logger holds an append handle on the same file.
-    /// </summary>
-    private static string? ReadLogTail(int lineCount)
-    {
-        try
-        {
-            string path = RuntimeLog.LogPath;
-            if (!File.Exists(path)) return null;
-
-            const int chunkSize = 64 * 1024;
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
-                                          FileShare.ReadWrite | FileShare.Delete);
-            long length = fs.Length;
-            int toRead = (int)Math.Min(length, chunkSize);
-            fs.Seek(length - toRead, SeekOrigin.Begin);
-
-            byte[] buffer = new byte[toRead];
-            int read = fs.Read(buffer, 0, toRead);
-            string text = Encoding.UTF8.GetString(buffer, 0, read);
-
-            string[] lines = text.Split('\n');
-            IEnumerable<string> tail = lines.Length > lineCount
-                ? lines.Skip(lines.Length - lineCount)
-                : lines;
-
-            return string.Join("\n", tail);
-        }
-        catch (System.Exception swallowed)
-        {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
-            return null;
-        }
     }
 
     private static string Truncate(string value)

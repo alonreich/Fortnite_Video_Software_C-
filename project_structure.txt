@@ -19,9 +19,39 @@ Sentinel registry:     .\build\sentinels.txt
 Standalone output:    .\compiled\FreeVideoStudio.exe
 
 Product display name: Free Video Studio
+Naming rule:          "Free Video Studio" = user-visible text (title bars, About, dialogs,
+                      shortcuts, install folder). "FreeVideoStudio" = files, folders,
+                      projects, namespaces, mutexes, registry/IDs.
 Application assembly: FreeVideoStudio (root namespace: FreeVideoStudio.App)
 Core assembly:        FreeVideoStudio.Core (root namespace: FreeVideoStudio.Core)
 Internal tooling retains FvsBuild, FvsVerify and the FVS environment variables.
+GitHub repository:    alonreich/Free_Video_Studio (updater + meme sync; old address redirects)
+Rebrand record:       docs/REBRAND_MIGRATION.md (old->new map, update flow, output naming)
+Previous-brand guard: tests\FreeVideoStudio.Core.Tests\RebrandTests.cs (old name allowed ONLY in
+                      LegacyAppDataNames.txt and docs/REBRAND_MIGRATION.md)
+Legacy identity:      .\src\FreeVideoStudio.Core\Infrastructure\LegacyAppDataNames.txt (migration only)
 Storage migration:    docs/05_SYSTEM_LIFECYCLE_STORAGE.md, SYS-REBRAND
+Residue removal:      docs/05_SYSTEM_LIFECYCLE_STORAGE.md, SYS-REBRAND-SWEEP (REBRAND_02,
+                      .\src\FreeVideoStudio.Core\Infrastructure\LegacyResidueSweep.cs)
 Packaging identity:   docs/09_DISTRIBUTION_AND_RELEASE.md, DIST-IDENTITY
+Old-client alias:     docs/09_DISTRIBUTION_AND_RELEASE.md, DIST-SPLIT (REBRAND_03, created
+                      transiently by .\build\FvsBuild\GitHubReleasePublisher.cs, never kept in obj\)
+Output file names:    docs/03_FFMPEG_EXPORT_PIPELINE.md, FFM-OUTNAME (OUTNAME_01,
+                      .\src\FreeVideoStudio.Core\Media\OutputFileNaming.cs)
+                      Defaults: FreeVideoStudio-N.mp4 (Main App), Merged-Videos-N.mp4 (Merger);
+                      rescued: FreeVideoStudio-RECOVERED-*, Merged-Videos-RECOVERED-*
+Settings › Output Files: per-tool save folder + file name (settings schema v11:
+                      MainOutputBaseName, MergerOutputBaseName), docs/04_UI_UX_AVALONIA_SPEC.md,
+                      UI-SETTINGS-ABOUT (.\src\FreeVideoStudio.App\Controls\SettingsWindow.Output.cs)
+New sentinels:        REBRAND_02, REBRAND_03, OUTNAME_01 (registered in .\build\sentinels.txt)
+Meme library:         .\meme\ holds ALL memes (videos + pictures); .\mp4\ and .\jpeg\ are gone
+                      (MEMEFOLDER_01). Cloud sync lists repo meme/ via git/trees (MEMESYNC_01..03);
+                      starter set = .\src\FreeVideoStudio.App\Infrastructure\MemeAssets.cs StarterFiles
+                      == .\build\FvsBuild\Staging.cs StarterMeme (STARTERLIST_01, MemeLibraryTests).
+                      Spec: docs/03_FFMPEG_EXPORT_PIPELINE.md, FFM-MEMELIB.
+Folder names:         never contain spaces - %ProgramFiles%\FreeVideoStudio, Videos\FreeVideoStudio\Memes
+                      (NOSPACE_01, MEMEFOLDER_02). Old spaced folders are migrated automatically.
+                      Spec: docs/05_SYSTEM_LIFECYCLE_STORAGE.md, SYS-NOSPACE.
+Meme picker:          .\src\FreeVideoStudio.App\Controls\MemePickerWindow.axaml(.cs) (MEMEPICK_01/02);
+                      docs/04_UI_UX_AVALONIA_SPEC.md, UI-MEMESELECT.
 ===============================================================================

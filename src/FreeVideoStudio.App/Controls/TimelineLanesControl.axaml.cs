@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -97,9 +100,14 @@ public partial class TimelineLanesControl : UserControl
         var scroll = LanesScrollCtl;
         if (scroll != null)
         {
+            // ZOOMSIZE_02 — SizeChanged ONLY. ScrollChanged must never resize the content:
+            // scroll POSITION has no bearing on content WIDTH, and reacting to it re-armed the
+            // resize loop on every pan.
             scroll.SizeChanged += (_, _) => ApplyZoomSizing();
         }
 
+        // TUNNEL, not bubbling: the ScrollViewer consumes bubbling wheel events before the root
+        // would see them. Tunneling lets the Ctrl+wheel zoom win the race deterministically.
         this.AddHandler(InputElement.PointerWheelChangedEvent, HandleTimelineWheel,
             RoutingStrategies.Tunnel);
 
@@ -185,12 +193,40 @@ public partial class TimelineLanesControl : UserControl
         {
             if (_caretDragging) return;
             _positionSec = Math.Clamp(value, 0, Math.Max(0, _durationSec));
-            EnsureCaretVisible();
+            EnsureCaretVisible();   // ZOOM_01 — follow the playhead when it leaves the viewport
             UpdateCaret();
             UpdateClocks();
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // LAYOUTLOOP_01 — REFRESH MUST NEVER RUN INSIDE A LAYOUT PASS. THIS IS NOT A PERF TWEAK.
+    //
+    // `LanesGrid.SizeChanged` used to call Refresh() DIRECTLY. SizeChanged is raised from inside
+    // Avalonia's arrange pass, and Refresh -> DrawRuler does `ruler.Children.Clear()` and then adds
+    // a Rectangle per tick — i.e. it MUTATES THE VISUAL TREE WHILE THE TREE IS BEING ARRANGED.
+    // That invalidates layout, which re-enters arrange, which raises SizeChanged again.
+    //
+    // Captured from a frozen process (dotnet-dump, 2026-09-12). UI thread, reading upward:
+    //     LayoutManager.ExecuteArrangePass
+    //       -> LayoutManager.Arrange  x6 nested
+    //         -> Layoutable.ArrangeCore
+    //           -> TimelineLanesControl.<.ctor>b__22_0(SizeChangedEventArgs)
+    //             -> Refresh -> DrawRuler
+    //               -> AvaloniaList.Clear -> Panel.ChildrenChanged -> SetVisualParent
+    //                 -> Visual.OnDetachedFromVisualTreeCore
+    //                   -> Trace.WriteLine -> OutputDebugString   (BLOCKING NATIVE CALL)
+    //
+    // Every detached child costs one OutputDebugString, which serialises on a global OS mutex and
+    // is brutally slow while a debugger or dotnet watch is attached. Hundreds of ticks per redraw,
+    // redrawing on every arrange, never converging: the window stops repainting and the app reads
+    // as hard-frozen. It also explains the "timeline keeps expanding" — the ruler is being rebuilt
+    // faster than the arrange pass can settle, so it never reaches a stable width.
+    //
+    // The fix is to leave the layout pass first: coalesce to ONE refresh and run it at Background
+    // priority, after arrange has completed. _inRefresh additionally makes re-entry impossible even
+    // if a future caller invokes Refresh() from inside a layout callback again.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     private bool _refreshQueued;
     private bool _inRefresh;
 
@@ -212,6 +248,8 @@ public partial class TimelineLanesControl : UserControl
     /// <summary>Redraws ruler, gridlines, caret and clocks. Safe to call at any time.</summary>
     public void Refresh()
     {
+        // LAYOUTLOOP_01 — a redraw that re-enters itself would rebuild the ruler from inside its
+        // own child-collection mutation. One redraw at a time, always.
         if (_inRefresh) return;
         _inRefresh = true;
         try
@@ -237,7 +275,7 @@ public partial class TimelineLanesControl : UserControl
         set
         {
             double z = Math.Clamp(value, 1.0, MaxZoomFactor);
-            _lastViewportW = 0;
+            _lastViewportW = 0;   // ZOOMSIZE_02 — the zoom changed, so re-size even at the same viewport
             if (z <= 1.0001) z = 1.0;
             if (Math.Abs(z - _zoomFactor) < 0.0001) return;
 
@@ -265,18 +303,41 @@ public partial class TimelineLanesControl : UserControl
 
     private void ApplyZoomSizing()
     {
+        // LAYOUTLOOP_01 — ScrollChanged fires when this method changes lanes.Width, which would
+        // call it again. The 0.5px guard below usually breaks that, but only AFTER a full layout
+        // pass has run; the flag stops the re-entry outright.
         if (_inZoomSizing) return;
 
         var scroll = LanesScrollCtl;
         var lanes = LanesGridCtl;
         if (scroll == null || lanes == null) return;
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // ZOOMSIZE_02 — MEASURE AGAINST Viewport. MEASURING AGAINST Bounds IS A RUNAWAY.
+        //
+        // LanesScroll lives in `ColumnDefinitions="Auto,*,Auto"`, column 1 — a STAR column, whose
+        // width follows its content when the container is not itself width-constrained. So:
+        //     contentW = Bounds.Width * zoom  ->  LanesGrid.Width = contentW
+        //         ->  the star column grows  ->  Bounds.Width grows  ->  contentW grows ...
+        // The ruler labels thin out to nothing, the film strip stretches without bound and the
+        // window itself is dragged wider. (An earlier attempt measured from Bounds to stop a scrollbar
+        // oscillation; it swapped a bounded wobble for an unbounded one. Reverted.)
+        //
+        // Viewport.Width cannot run away: it is what is actually VISIBLE, so it is capped by the
+        // window no matter how wide the content becomes. The scrollbar wobble that attempt was
+        // aimed at is handled instead by the two guards that survive from it, which are enough:
+        // ScrollChanged no longer resizes anything, and an unchanged measurement is a no-op.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         double vp = scroll.Viewport.Width > 0 ? scroll.Viewport.Width : scroll.Bounds.Width;
         if (vp <= 0) return;
 
+        // ZOOMSIZE_02 — if the width we measure from has not moved, there is nothing to react to.
         if (Math.Abs(vp - _lastViewportW) < 0.5 && _lastViewportW > 0) return;
         _lastViewportW = vp;
 
+        // ZOOMSIZE_02 — a hard ceiling, independent of every calculation above. Nothing in this
+        // control has any use for a lane wider than the viewport times the maximum zoom, and no
+        // sequence of layout passes may ever produce one.
         double contentW = Math.Min(vp * _zoomFactor, vp * MaxZoomFactor);
         if (lanes.MaxWidth != contentW) lanes.MaxWidth = contentW;
 
@@ -334,6 +395,9 @@ public partial class TimelineLanesControl : UserControl
             double maxOff = Math.Max(0, scroll.Extent.Width - vp);
             if (maxOff <= 0) return;
             e.Handled = true;
+            // Notch conventions differ across devices (±1 per detent on most, ±120 on raw Win32
+            // feeds, sub-1.0 on trackpads) — clamp to one WheelPanPx per event so every device
+            // pans the same speed.
             double step = Math.Clamp(e.Delta.Y * WheelPanPx, -WheelPanPx, WheelPanPx);
             scroll.Offset = new Vector(
                 Math.Clamp(scroll.Offset.X - step, 0, maxOff), 0);
@@ -482,6 +546,9 @@ public partial class TimelineLanesControl : UserControl
             badge.IsVisible = _caretDragging;
             badgeText.Text = FormatClock(_positionSec);
 
+            // ZOOM_01 — clamp the badge to the VISIBLE right edge, not the content width, or at
+            // high zoom it lands thousands of pixels past the viewport and never reappears. With
+            // no scrolling in play this is exactly the old `w - 60` clamp.
             var scroll = LanesScrollCtl;
             double visibleRight = w;
             if (scroll != null && scroll.Viewport.Width > 0)
@@ -533,7 +600,7 @@ public partial class TimelineLanesControl : UserControl
             if (w <= 0 || _durationSec <= 0) return;
             double frac = Math.Clamp(e.GetPosition(host).X / w, 0, 1);
             _positionSec = frac * _durationSec;
-            EnsureCaretVisible();
+            EnsureCaretVisible();   // ZOOM_01 — edge-follow while dragging the caret
             UpdateCaret();
             UpdateClocks();
             SeekRequested?.Invoke(_positionSec);
@@ -562,7 +629,7 @@ public partial class TimelineLanesControl : UserControl
             if (w <= 0 || _durationSec <= 0) return;
             double frac = Math.Clamp(e.GetPosition(surface).X / w, 0, 1);
             _positionSec = frac * _durationSec;
-            EnsureCaretVisible();
+            EnsureCaretVisible();   // ZOOM_01 — a seek surface drag can reach past the viewport edge
             UpdateCaret();
             UpdateClocks();
             SeekRequested?.Invoke(_positionSec);

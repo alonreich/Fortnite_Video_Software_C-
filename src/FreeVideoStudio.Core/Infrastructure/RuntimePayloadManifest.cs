@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,6 +12,40 @@ using System.Text.Json.Nodes;
 namespace FreeVideoStudio.Core.Infrastructure;
 
 /// <summary>
+/// SYS-PAYLOADSPLIT — WHAT THE INSTALLED RUNTIME ACTUALLY IS, SO A PATCH DOES NOT HAVE TO RESHIP IT.
+///
+/// <para>
+/// ══════════════════════════════════════════════════════════════════════════════════════════════
+/// <b>THE PROBLEM THIS EXISTS TO MEASURE.</b> The product ships as one 322 MB executable: a
+/// NativeAOT installer with <c>payload.zip</c> embedded as a managed resource, which it extracts on
+/// first run. The payload is FFmpeg and libmpv — <c>avcodec-62.dll</c> alone is 97 MB — plus the
+/// starter media. The application's own code is a small fraction of that.
+/// </para>
+///
+/// <para>
+/// ⚠️ <b>AND THE AUTO-UPDATER DOWNLOADS ALL OF IT, EVERY TIME.</b> <c>UpdateService</c> fetches the
+/// single <c>FreeVideoStudio.exe</c> release asset and reinstalls. So a one-line typo fix
+/// costs every user 322 MB over a 30-minute timeout — for a set of codec DLLs that have not changed
+/// since June and will not change in this release either. On a metered connection that is a reason
+/// to stop updating, which turns every shipped fix into a fix most users never receive.
+/// </para>
+///
+/// <para>
+/// <b>WHAT THIS CLASS DOES.</b> It records a fingerprint of the runtime payload — the binaries, not
+/// the app — next to the installed files. The build writes one into the payload; the updater
+/// compares the installed fingerprint against the one the release advertises. Equal means the
+/// runtime is already correct on this machine and only the application needs to come down.
+/// </para>
+///
+/// <para>
+/// ⚠️ <b>NAMES AND SIZES, NOT CONTENT HASHES.</b> Hashing 368 MB of DLLs on every startup to
+/// decide whether to check for an update would be a worse bug than the one being fixed. Name plus
+/// exact byte length over the whole set is enough to notice a version change — FFmpeg builds do not
+/// coincidentally keep every file at exactly the same length — and it costs a directory listing.
+/// The downloaded package is still verified by SHA-256 before it is trusted (UPDATETRUST_02); this
+/// fingerprint decides WHAT to download, never whether to trust it.
+/// </para>
+/// ══════════════════════════════════════════════════════════════════════════════════════════════
 /// SYS-PAYLOADSPLIT — content fingerprint of files a compact installer reuses.
 /// Computed at packaging time; update checks read the stored fingerprint. Before selecting
 /// a compact package, the updater separately verifies installed bytes against their manifest.
@@ -86,6 +123,9 @@ public sealed record RuntimePayloadManifest(string Fingerprint, int FileCount, l
         }
         catch (Exception ex)
         {
+            // An unreadable manifest means "I cannot prove the runtime matches", which resolves to
+            // the full installer. Degrading to a bigger download is always safe; degrading to a
+            // smaller one is not.
             CoreLogger.Swallowed(ex);
             return null;
         }

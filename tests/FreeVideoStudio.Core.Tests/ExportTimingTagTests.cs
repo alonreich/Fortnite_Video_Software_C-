@@ -13,7 +13,7 @@ public class ExportTimingTagTests
     [InlineData(null, 45)]
     [InlineData(30, 45)]
     [InlineData(0, 0)]
-    public void RoundTrip_AllFadeCombinations(int? fadeIn, int? fadeOut)
+    public void RoundTrip_AllFadeCombinations(int? fadeIn, int? fadeOut)   // T1.1a
     {
         var t = new ExportTiming(60, 1, 6, fadeIn, fadeOut);
         string s = ExportTimingTag.Format(t);
@@ -31,7 +31,7 @@ public class ExportTimingTagTests
     }
 
     [Fact]
-    public void V1Only_FallsBackToSeconds_FadesUnknown()
+    public void V1Only_FallsBackToSeconds_FadesUnknown()   // T1.1b
     {
         var tags = new JsonObject { ["fvs_intro_sec"] = "0.100" };
         var t = ExportTimingTag.Read(tags, 10);
@@ -57,10 +57,10 @@ public class ExportTimingTagTests
     [InlineData("v=2;fps=60/1;intro=abc")]
     [InlineData("v=3;fps=60/1;intro=6")]
     [InlineData("v=2;intro=6")]
-    [InlineData("v=2;fps=60/1;intro=600")]
-    [InlineData("v=2;fps=60/1;intro=6;fadein=99999")]
+    [InlineData("v=2;fps=60/1;intro=600")]            // 10 s intro, implausible
+    [InlineData("v=2;fps=60/1;intro=6;fadein=99999")] // longer than the file
     [InlineData("")]
-    public void Garbage_IsRejected(string raw)
+    public void Garbage_IsRejected(string raw)   // T1.1c
         => Assert.False(ExportTimingTag.TryParse(raw, 10, out _));
 
     [Fact]
@@ -75,7 +75,7 @@ public class ExportTimingTagTests
     }
 
     [Fact]
-    public void NoTags_IsNull()
+    public void NoTags_IsNull()   // T1.3a
     {
         Assert.Null(ExportTimingTag.Read(new JsonObject { ["encoder"] = "Lavf" }, 10));
         Assert.Null(ExportTimingTag.Read(null, 10));

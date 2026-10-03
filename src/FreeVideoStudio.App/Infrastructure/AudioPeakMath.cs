@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.IO;
 
 namespace FreeVideoStudio.App.Infrastructure;
@@ -18,6 +21,9 @@ namespace FreeVideoStudio.App.Infrastructure;
 internal static class AudioPeakMath
 {
     internal static double DbToLinear(double db) => Math.Pow(10.0, db / 20.0);
+// ⚠️ FindNearestPeakTime stayed in MusicWizardWindow: it takes AudioEnergyAnalysis, a PRIVATE
+    // nested type of that window. Moving it would mean promoting that type too, which is a wider
+    // change than this extraction, so it was deliberately left behind.
 
     internal static string FormatSeconds(double seconds)
     {

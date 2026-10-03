@@ -1,4 +1,9 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -7,6 +12,25 @@ using System.Text.Json.Serialization;
 
 namespace FreeVideoStudio.Core.Media;
 
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// MERGEEDL_01 — THE VIDEO MERGER'S EDIT DECISION LIST (Video-Merger-Migration.md P2.1).
+//
+// The whole merge is DATA: which clips, in which order, which part of each, and which effects.
+// Nothing is rendered until MERGE. Preview, music, undo, autosave and export all read this one
+// object, so they cannot disagree.
+//
+// TIME UNIT: SOURCE MICROSECONDS (long) inside each clip's own file. Not seconds (double drift),
+// and not frame indexes (gameplay captures can be variable frame rate, so "frame 600" has no fixed
+// time). P2.2 snaps every stored microsecond to a REAL frame timestamp of that file.
+//
+// ANCHORS: everything that must survive a layout change (reorder, scraper toggle, custom
+// thumbnail) is stored as (ClipId, SourceUs). ClipId is a GUID given when a clip enters the queue,
+// so the same file added twice gets two identities.
+//
+// EQUALITY: records that hold lists implement structural Equals/GetHashCode by hand. A record's
+// generated Equals compares lists BY REFERENCE, which silently breaks UndoStack's "no-op edit"
+// detection (see UNDOEQ_01 in ProjectDocument).
+// ══════════════════════════════════════════════════════════════════════════════════════════════
 
 /// <summary>Where a meme sits inside its clip (user decision D4).</summary>
 public enum EdlMemePlacement
@@ -37,8 +61,22 @@ public sealed record EdlSpeedSegment(long StartUs, long EndUs, double Speed, Edl
 /// <summary>A freeze frame inside one clip: hold the frame at <see cref="AtUs"/> for <see cref="DurationSec"/> output seconds.</summary>
 public sealed record EdlFreeze(long AtUs, double DurationSec);
 
-/// <summary>A meme inside one clip.</summary>
-public sealed record EdlMeme(string Id, string FilePath, EdlMemePlacement Placement, long AtUs, double DurationSec);
+/// <summary>
+/// A meme inside one clip. MEMEMODE_01: <paramref name="Mode"/> decides whether it interrupts the clip
+/// (full screen, the clip grows by its length) or plays in a corner over it (zero added length).
+/// Files written before MEMEMODE_01 have none of the four trailing keys and read back as a
+/// full-screen cutaway with sound (<see cref="MergeEdl.FromJson"/> fills them, EDLNULL_01).
+/// </summary>
+public sealed record EdlMeme(string Id, string FilePath, EdlMemePlacement Placement, long AtUs, double DurationSec,
+    MemePresentationMode Mode = MemePresentationMode.InlineFullScreen,
+    MemeOverlayCorner Corner = MemeOverlayCorner.BottomRight,
+    MemeOverlaySize Size = MemeOverlaySize.Medium,
+    bool PlaySound = true)
+{
+    /// <summary>MEMEMODE_01 — a corner overlay occupies zero output seconds.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsCornerOverlay => Mode == MemePresentationMode.CornerOverlay;
+}
 
 /// <summary>A removed part of one clip (D18, DELETE PARTS), in that clip's source µs.</summary>
 public readonly record struct EdlCut(long StartUs, long EndUs);
@@ -186,6 +224,10 @@ public sealed record MergeEdl
         if (string.IsNullOrWhiteSpace(json)) return null;
         try
         {
+            // EDLNULL_01 — the source-generated reader assigns default(T) to every init property the
+            // file does not mention (it does not run initializers). A file written before a field
+            // existed would silently load e.g. ScraperEnabled=false, BaseSpeed=0, volumes=0. So every
+            // object is first completed with the missing keys from a freshly constructed default.
             if (JsonNode.Parse(json) is not JsonObject root) return null;
             FillMissing(root, Template.Edl);
             if (root["Clips"] is JsonArray clips)
@@ -195,7 +237,14 @@ public sealed record MergeEdl
                     if (c is not JsonObject clip) continue;
                     FillMissing(clip, Template.Clip, "ClipId");
                     if (clip["ClipId"] is null) clip["ClipId"] = Guid.NewGuid().ToString();
-                    if (clip["Effects"] is JsonObject fx) FillMissing(fx, Template.Effects);
+                    if (clip["Effects"] is JsonObject fx)
+                    {
+                        FillMissing(fx, Template.Effects);
+                        // MEMEMODE_01 — a meme from before the presentation keys is full screen with sound.
+                        if (fx["Memes"] is JsonArray memeArray)
+                            foreach (var mm in memeArray)
+                                if (mm is JsonObject memeObj) FillMissing(memeObj, Template.Meme);
+                    }
                 }
             }
             if (root["Music"] is JsonObject music) FillMissing(music, Template.Music);
@@ -222,11 +271,12 @@ public sealed record MergeEdl
         public static readonly JsonObject Clip = Of(JsonSerializer.SerializeToNode(new EdlClip(), MergeEdlJsonContext.Default.EdlClip));
         public static readonly JsonObject Effects = Of(JsonSerializer.SerializeToNode(new EdlEffects(), MergeEdlJsonContext.Default.EdlEffects));
         public static readonly JsonObject Music = Of(JsonSerializer.SerializeToNode(new EdlMusic(), MergeEdlJsonContext.Default.EdlMusic));
+        public static readonly JsonObject Meme = Of(JsonSerializer.SerializeToNode(new EdlMeme("", "", EdlMemePlacement.Mid, 0, 0), MergeEdlJsonContext.Default.EdlMeme));
 
         private static JsonObject Of(JsonNode? node)
         {
             var o = node as JsonObject ?? new JsonObject();
-            o.Remove("Clips");
+            o.Remove("Clips");   // a template never contributes content, only defaults for missing scalars/lists
             return o;
         }
     }
@@ -250,4 +300,5 @@ internal static class EdlHash
 [JsonSerializable(typeof(EdlClip))]
 [JsonSerializable(typeof(EdlEffects))]
 [JsonSerializable(typeof(EdlMusic))]
+[JsonSerializable(typeof(EdlMeme))]
 public partial class MergeEdlJsonContext : JsonSerializerContext { }

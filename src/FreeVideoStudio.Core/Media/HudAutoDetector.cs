@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -109,6 +112,9 @@ public static class HudAutoDetector
     /// capture has thousands; we only ever want sixty, and each one costs ~1.5 MB of RAM.</summary>
     private const int MaxKeyframesRead = 400;
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // ROLE SPECIFICATIONS
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Everything the detector knows about where one HUD role lives and what it looks like. Ported
@@ -157,6 +163,7 @@ public static class HudAutoDetector
     /// </summary>
     private static readonly RoleSpec[] RoleSpecs =
     [
+        // "Mini Map + Stats"
         new("stats",
             0.60, 0.00, 1.00, 0.42,
             180, 760, 90, 560,
@@ -167,6 +174,7 @@ public static class HudAutoDetector
             0.03, 0.04, 0.50,
             0.94),
 
+        // "Own Health Bar (HP)"
         new("normal_hp",
             0.00, 0.58, 0.52, 1.00,
             120, 960, 20, 300,
@@ -177,6 +185,7 @@ public static class HudAutoDetector
             0.008, 0.12, 0.38,
             0.90),
 
+        // "Loot Area"
         new("loot",
             0.46, 0.56, 1.00, 1.00,
             160, 1200, 30, 430,
@@ -187,6 +196,7 @@ public static class HudAutoDetector
             0.015, 0.10, 0.36,
             0.92),
 
+        // "Teammates health Bars (HP)" — the one role that legitimately repeats, hence MaxKeep 3.
         new("team",
             0.00, 0.00, 0.35, 0.45,
             80, 500, 40, 400,
@@ -197,6 +207,7 @@ public static class HudAutoDetector
             0.005, 0.10, 0.30,
             0.88),
 
+        // "Spectating Eye"
         new("spectating",
             0.35, 0.00, 0.65, 0.30,
             40, 200, 30, 150,
@@ -209,6 +220,9 @@ public static class HudAutoDetector
 
     ];
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // ENTRY POINT
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Runs the whole pipeline and returns what it found, best-first within each role and roles in
@@ -248,12 +262,19 @@ public static class HudAutoDetector
             return Array.Empty<DetectionRect>();
         }
 
+        // The Python fell back to 30s when the duration was unavailable, purely so the frame-count
+        // ladder below had something to answer. Same conservative default here.
         if (totalMs <= 0) totalMs = 30000;
 
+        // Analysis geometry. Width is derived from the SOURCE aspect and forced even, exactly as
+        // the Python did (`if self.scale_w % 2 != 0: self.scale_w += 1`) — odd widths break several
+        // pixel-format conversions inside ffmpeg's scaler.
         int analysisWidth = (int)Math.Round(AnalysisHeight * (sourceWidth / (double)Math.Max(1, sourceHeight)));
         if (analysisWidth % 2 != 0) analysisWidth++;
         if (analysisWidth < 2) analysisWidth = 2;
 
+        // Frame-count ladder, straight from extract_all. Short clips get PROPORTIONALLY more
+        // samples, because a 3-second clip has less temporal variety to average over.
         int targetFrames = totalMs <= 3500 ? 45 : totalMs <= 15000 ? 50 : 60;
         int minRequired = totalMs < 5000 ? 8 : 16;
 
@@ -285,6 +306,16 @@ public static class HudAutoDetector
         return Analyse(sample.Median, sample.Stability, analysisWidth, AnalysisHeight, sourceWidth, sourceHeight, ct, progress, sample.LastProgress);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // WANDPROGRESS_01 — THE PERCENTAGE BUDGET.
+    //
+    // The bands below are shares of the WALL CLOCK, not of the code. Frame sampling is by far the
+    // longest stage (it decodes the clip), so it owns nearly half the bar on its own; the per-role
+    // scoring is six near-identical passes, so it gets a band it can subdivide evenly. They are
+    // deliberately not evenly spaced: a bar whose segments each take a wildly different length of
+    // real time is a bar that lies, and a bar that lies is worse than no bar, because the user
+    // calibrates their patience against it.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     private const int PctSamplingStart = 5;
     private const int PctSamplingEnd = 48;
     private const int PctMedian = 58;
@@ -294,6 +325,9 @@ public static class HudAutoDetector
     private const int PctRolesEnd = 94;
     private const int PctFallbacks = 97;
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // STAGE 1 — FRAME SAMPLING
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     /// <summary>Maximum number of frames retained in the bounded ring buffer for temporal median calculation.</summary>
     internal const int MaxMedianFrames = 15;
 
@@ -401,6 +435,8 @@ public static class HudAutoDetector
 
         if (keyframeMode)
         {
+            // No fps filter: every keyframe the decoder emits is wanted, and -vsync 0 stops ffmpeg
+            // from duplicating or dropping to hit a constant output rate.
             args.Add("-vsync");
             args.Add("0");
             args.Add("-vf");
@@ -449,6 +485,8 @@ public static class HudAutoDetector
 
             try { ChildProcessTracker.AddProcess(process); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
 
+            // Drain stderr on its own task. ffmpeg writes enough on some inputs to fill the pipe
+            // buffer, and a blocked writer is a child that never exits.
             errTask = process.StandardError.ReadToEndAsync();
             Stream pipe = process.StandardOutput.BaseStream;
 
@@ -465,12 +503,16 @@ public static class HudAutoDetector
                     have += read;
                 }
 
-                if (have < frameBytes) break;
+                if (have < frameBytes) break;   // EOF, or a torn final frame. Either way, stop.
 
                 framesSampled++;
                 int k = framesSampled;
                 double invK = 1.0 / k;
 
+                // WANDPROGRESS_01 — the only stage that can report continuously, and the longest
+                // one, so it is what stops the bar from looking stuck. In keyframe mode readLimit is
+                // the over-read ceiling rather than the target, so the fraction is against whichever
+                // is actually being counted up to.
                 for (int p = 0; p < pixels; p++)
                 {
                     int baseIdx = p * 3;
@@ -523,6 +565,8 @@ public static class HudAutoDetector
                     }
                 }
 
+            // The reader may have stopped early (readLimit hit); closing our end makes ffmpeg see a
+            // broken pipe and exit rather than block forever writing frames nobody wants.
                 if (progress != null && readLimit > 0)
                 {
                     int pct = PctSamplingStart + (int)((PctSamplingEnd - PctSamplingStart) * (framesSampled / (double)readLimit));
@@ -590,6 +634,7 @@ public static class HudAutoDetector
             process?.Dispose();
         }
 
+        // Keyframe mode over-reads on purpose; thin the result down to the requested count, evenly.
         if (framesSampled == 0 || ringCount == 0)
         {
             return new SampleResult(new byte[frameBytes], new byte[pixels], 0, lastProgress);
@@ -613,6 +658,9 @@ public static class HudAutoDetector
         return new SampleResult(median, stability, framesSampled, lastProgress);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // STAGE 2 — THE ANALYSIS ITSELF
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     private static IReadOnlyList<DetectionRect> Analyse(
         byte[] median,
@@ -623,11 +671,16 @@ public static class HudAutoDetector
         IProgress<DetectionProgress>? progress = null,
         int initialProgress = PctMedian)
     {
+        // ── The temporal median. This is the single most important line in the file: it is what
+        //    turns "a video of a match" into "a picture of the parts of the screen that never
+        //    move". Everything downstream is measured against it.
         int lastProgress = initialProgress;
 
+        // ── The stability mask, before the frames are released. Bright = never changed.
         ReportProgress(progress, ref lastProgress, PctStability, "Looking for panels and edges\u2026");
         byte[] gray = HudImageOps.BgrToGray(median, width, height);
 
+        // Dark structure on bright gameplay: HUD plates are dark, semi-transparent panels.
         byte[] baseMask = HudImageOps.MorphClose(
             HudImageOps.AdaptiveThresholdGaussianInv(gray, width, height, blockSize: 21, c: 5),
             width, height, 5, 5);
@@ -646,12 +699,16 @@ public static class HudAutoDetector
         var ctx = new AnalysisContext(width, height, sourceWidth, sourceHeight,
             baseMask, anchorMask, edgeMask, stability);
 
+        // ── Per-role detection.
         var perRole = new Dictionary<string, List<(double Score, DetectionRect Rect)>>(StringComparer.Ordinal);
         for (int i = 0; i < RoleSpecs.Length; i++)
         {
             RoleSpec spec = RoleSpecs[i];
             ct.ThrowIfCancellationRequested();
 
+            // WANDPROGRESS_01 — the role band is split evenly because the six passes really do cost
+            // about the same: same masks, same zone-sized blob search, same eight-term scorer.
+            // The friendly name is the one the user will see on the box if this role is found.
             int pct = PctRolesStart + (PctRolesEnd - PctRolesStart) * i / RoleSpecs.Length;
             ReportProgress(progress, ref lastProgress, pct, $"Checking for the {FriendlyRoleName(spec.RoleKey)}\u2026");
 
@@ -663,12 +720,16 @@ public static class HudAutoDetector
 
         var selected = new List<DetectionRect>();
 
+        // Winners first, in role order, so the first box the user meets is the minimap.
         foreach (RoleSpec spec in RoleSpecs)
         {
             var list = perRole[spec.RoleKey];
             if (list.Count > 0) selected.Add(list[0].Rect);
         }
 
+        // Then the legitimate seconds — a squad has more than one teammate bar, and some layouts
+        // split the loot row. Only when the runner-up is genuinely comparable in both score and
+        // size, or every busy frame would produce a second box for every role.
         foreach (RoleSpec spec in RoleSpecs)
         {
             var list = perRole[spec.RoleKey];
@@ -689,6 +750,8 @@ public static class HudAutoDetector
 
         int primaryFound = RoleSpecs.Count(s => perRole[s.RoleKey].Count > 0);
 
+        // ── Generic fallback: only when the role detectors clearly did not understand this HUD.
+        //    Running it alongside a good role pass just adds noise the user has to dismiss.
         if (primaryFound < 3)
         {
             ReportProgress(progress, ref lastProgress, PctFallbacks, "Taking a second look\u2026");
@@ -704,6 +767,8 @@ public static class HudAutoDetector
                 double cxn = (rect.X + rect.Width / 2.0) / Math.Max(1, sourceWidth);
                 double cyn = (rect.Y + rect.Height / 2.0) / Math.Max(1, sourceHeight);
 
+                // The middle-right band is where gameplay lives, not HUD. A candidate there has to
+                // clear a higher bar before it is worth showing.
                 if (cyn is > 0.32 and < 0.72 && cxn is > 0.36 and < 0.94 && score < 32.0) continue;
 
                 selected.Add(rect);
@@ -714,6 +779,8 @@ public static class HudAutoDetector
             CoreLogger.Debug("HudAutoDetector", "Role detections complete; generic fallback skipped.");
         }
 
+        // ── Circle hunt: the minimap is round in a lot of layouts, and a round thing on a busy
+        //    background is exactly the case the rectangular blob finder is worst at.
         if (perRole["stats"].Count == 0)
         {
             ReportProgress(progress, ref lastProgress, PctFallbacks, "Hunting for a round minimap\u2026");
@@ -764,8 +831,22 @@ public static class HudAutoDetector
         int SourceWidth, int SourceHeight,
         byte[] BaseMask, byte[] AnchorMask, byte[] EdgeMask, byte[] StabilityMask);
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // TEMPORAL STATISTICS
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
+    /// Per-pixel, per-channel median across every sampled frame — <c>np.median(frames, axis=0)</c>.
+    ///
+    /// The median and not the mean, and this is not a detail: a mean smears a bright muzzle flash
+    /// across every pixel it touched, while a median ignores it entirely unless it was present in
+    /// more than half the frames. HUD elements are present in all of them.
+    ///
+    /// Quickselect rather than a sort. With sixty samples per channel and roughly 1.5 million
+    /// channels at analysis resolution, an insertion sort is ~1.4 billion comparisons and a
+    /// noticeable stall; quickselect is linear in the sample count and finishes in well under a
+    /// second. The median-of-an-even-count convention is the LOWER of the two middle values, which
+    /// is what OpenCV/NumPy's integer path effectively yields after the cast back to uint8.
     /// Per-pixel, per-channel median across the bounded ring buffer of frames — <c>np.median(frames, axis=0)</c>.
     /// Quickselect over at most 15 samples per channel completes in milliseconds with zero LOH churn.
     /// </summary>
@@ -812,6 +893,16 @@ public static class HudAutoDetector
     }
 
     /// <summary>
+    /// The stability mask — <c>_compute_temporal_stability_mask</c>. Bright means "this pixel did
+    /// not change over the clip", which is the closest thing to a definition of "HUD" that exists.
+    ///
+    /// Per-pixel standard deviation over time (population, ddof=0, matching NumPy's default),
+    /// averaged across the three channels, min-max normalised, inverted, and thresholded hard at
+    /// 165. The open-then-close pass afterwards removes single-pixel speckle and then seals the
+    /// gaps inside what survived, so a panel reads as one region rather than a constellation.
+    ///
+    /// Under three frames there is nothing meaningful to measure and the Python returned an
+    /// all-pass mask rather than a misleading one; so does this.
     /// The stability mask — converted directly from online variance accumulators (Welford's algorithm).
     /// Bright means "this pixel did not change over the clip", which identifies static HUD panels.
     /// Inverted min-max normalization via <see cref="HudImageOps.NormalizeMinMaxToByte"/>, hard thresholded
@@ -857,10 +948,10 @@ public static class HudAutoDetector
         {
             int h = hsv[p], s = hsv[p + 1], v = hsv[p + 2];
 
-            bool hp     = h is >= 35  and <= 95  && s >= 80  && v >= 80;
-            bool shield = h is >= 100 and <= 140 && s >= 80  && v >= 80;
-            bool loot   = h is >= 15  and <= 40  && s >= 100 && v >= 100;
-            bool rarity = h is >= 120 and <= 175 && s >= 50  && v >= 50;
+            bool hp     = h is >= 35  and <= 95  && s >= 80  && v >= 80;    // health green
+            bool shield = h is >= 100 and <= 140 && s >= 80  && v >= 80;    // shield blue
+            bool loot   = h is >= 15  and <= 40  && s >= 100 && v >= 100;   // loot amber/gold
+            bool rarity = h is >= 120 and <= 175 && s >= 50  && v >= 50;    // rarity purple/pink
 
             mask[i] = (hp || shield || loot || rarity) ? (byte)255 : (byte)0;
         }
@@ -868,6 +959,9 @@ public static class HudAutoDetector
         return mask;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // SCORING
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// <c>_extract_role_candidates</c> — find and rank the candidates for one role.
@@ -964,6 +1058,7 @@ public static class HudAutoDetector
             double aspectScore = Math.Max(0.0, 1.0 - aspectDev / Math.Log(2.0));
             double areaNorm = Math.Min(1.0, (rw * (double)rh) / (spec.MaxW * (double)spec.MaxH));
 
+            // The minimap's tell: a dense strip of text and icons across the top of the block.
             double topBandBonus = 0.0;
             if (spec.RoleKey == "stats")
             {
@@ -1086,6 +1181,9 @@ public static class HudAutoDetector
         return mask;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // CIRCLE HUNT
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// <c>_hunt_for_circles</c> — the minimap-specific last resort, run only when the role detector
@@ -1145,6 +1243,8 @@ public static class HudAutoDetector
             int py = i / zoneW;
             int px = i - py * zoneW;
 
+            // Vote in BOTH directions along the gradient: a centre may be on the bright or the
+            // dark side of the edge depending on the map's rendering, and OpenCV votes both ways too.
             for (int r = minRadius; r <= maxRadius; r++)
             {
                 for (int sign = -1; sign <= 1; sign += 2)
@@ -1157,7 +1257,7 @@ public static class HudAutoDetector
             }
         }
 
-        const int CentreThreshold = 30;
+        const int CentreThreshold = 30;      // param2
         const double MinCentreDistance = 120.0;
 
         var centres = new List<(int Votes, int X, int Y)>();
@@ -1188,6 +1288,7 @@ public static class HudAutoDetector
             if (kept.Any(k => Math.Sqrt((k.X - cx) * (double)(k.X - cx) + (k.Y - cy) * (double)(k.Y - cy)) < MinCentreDistance))
                 continue;
 
+            // Modal distance from this centre to the edge pixels around it — the circle's radius.
             var histogram = new int[maxRadius + 1];
             foreach (int p in edgePoints)
             {
@@ -1208,6 +1309,9 @@ public static class HudAutoDetector
 
             kept.Add((cx, cy));
 
+            // Back into SOURCE space, with the original's ±10px generosity: the user is going to
+            // adjust this box anyway, and a box slightly too large is far easier to pull in than a
+            // box that clips the thing it is meant to contain.
             double fx = (cx - bestRadius + zoneX) * scaleX;
             double fy = (cy - bestRadius) * scaleY;
             double fw = 2.0 * bestRadius * scaleX;
@@ -1225,6 +1329,9 @@ public static class HudAutoDetector
         return results;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // GEOMETRY HELPERS
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// THE ONLY PLACE ANALYSIS PIXELS BECOME SOURCE PIXELS. <c>_scaled_to_original_rect</c>.
@@ -1352,7 +1459,7 @@ public static class HudAutoDetector
 
                     current = new DetectionRect(x1, y1, x2 - x1, y2 - y1, current.RoleKey ?? other.RoleKey);
                     pending.RemoveAt(i);
-                    i = 0;
+                    i = 0;   // The union is bigger, so things that did not touch before may now.
                 }
                 else
                 {

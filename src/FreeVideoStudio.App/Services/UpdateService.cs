@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Diagnostics;
 using System.Globalization;
@@ -52,7 +55,7 @@ namespace FreeVideoStudio.App.Services;
 /// </summary>
 internal static class UpdateService
 {
-    private const string LatestReleaseApiUrl = "https://api.github.com/repos/alonreich/Fortnite_Video_Software_C-/releases/latest";
+    private const string LatestReleaseApiUrl = "https://api.github.com/repos/alonreich/Free_Video_Studio/releases/latest";
     private const string ExpectedAssetName = "FreeVideoStudio.exe";
 
     /// <summary>
@@ -157,6 +160,7 @@ internal static class UpdateService
     /// </summary>
     public static async Task RunStartupCheckAsync(Window owner)
     {
+        // The master switch. OFF means: no network call, no prompt, no nag — ever.
         if (Environment.GetCommandLineArgs().Contains("--upgrade-health")) return;
         if (!SettingsManager.Instance.AutoUpdateChecks)
         {
@@ -164,19 +168,23 @@ internal static class UpdateService
             return;
         }
 
+        // dev.cmd runs with FVS_DEV_LOG_DIR set; a developer's machine must never be offered
+        // a release probe against its own un-versioned local build.
         if (RuntimeLog.IsDevMode)
         {
             RuntimeLog.Info("UPDATE", "Dev mode detected; update check skipped.");
             return;
         }
 
+        // Let the window settle first — the suggestor must never compete with startup work
+        // or recovery prompts for the user's attention.
         try
         {
             await Task.Delay(StartupGracePeriod).ConfigureAwait(false);
         }
         catch (System.Exception swallowed4)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return;
         }
 
@@ -204,6 +212,8 @@ internal static class UpdateService
                 return;
             }
 
+            // STRICTLY newer only. Equal ("already have it") and older ("running a newer build")
+            // are the two false positives this feature must never produce.
             if (remote.CompareTo(local) <= 0)
             {
                 RuntimeLog.Info("UPDATE", $"Already up to date (installed {local}, latest {remote}).");
@@ -219,6 +229,8 @@ internal static class UpdateService
                 return;
             }
 
+            // Same UI-thread marshalling pattern MainWindow uses (Post + completion source):
+            // DispatcherOperation shapes differ per InvokeAsync overload, so we don't touch them.
             var choiceReady = new TaskCompletionSource<UpdateChoice>(TaskCreationOptions.RunContinuationsAsynchronously);
             Dispatcher.UIThread.Post(async () =>
             {
@@ -226,7 +238,7 @@ internal static class UpdateService
                 catch (Exception ex)
                 {
                     choiceReady.SetException(ex);
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 }
             });
             UpdateChoice choice = await choiceReady.Task.ConfigureAwait(false);
@@ -247,6 +259,7 @@ internal static class UpdateService
                     await DownloadVerifyLaunchAsync(owner, release).ConfigureAwait(false);
                     break;
 
+                // NotNow / Dismissed: nothing is stored; a later start may offer the same release again.
             }
         }
         catch (Exception ex)
@@ -320,7 +333,7 @@ internal static class UpdateService
                 catch (Exception ex)
                 {
                     choiceReady.SetException(ex);
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 }
             });
             UpdateChoice choice = await choiceReady.Task.ConfigureAwait(false);
@@ -370,7 +383,7 @@ internal static class UpdateService
         try { return UiStateStore.ReadText(SkippedTagFile).Trim(); }
         catch (System.Exception swallowed6)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
             return string.Empty;
         }
     }
@@ -426,6 +439,7 @@ internal static class UpdateService
                 return null;
             }
 
+            // /releases/latest never returns drafts or prereleases; this is defense in depth.
             if (root?["draft"]?.GetValue<bool>() == true || root?["prerelease"]?.GetValue<bool>() == true)
             {
                 RuntimeLog.Info("UPDATE", "Latest release is a draft/prerelease; staying silent.");
@@ -444,7 +458,7 @@ internal static class UpdateService
                 if (name.Equals(ExpectedAssetName, StringComparison.OrdinalIgnoreCase))
                     asset = candidate;
                 else if (name.Equals(AppOnlyAssetName, StringComparison.OrdinalIgnoreCase))
-                    appOnlyAsset = candidate;
+                    appOnlyAsset = candidate;          // SYS-PAYLOADSPLIT
                 else if (name.Equals(RuntimeManifestAssetName, StringComparison.OrdinalIgnoreCase))
                     runtimeManifestUrl = candidate?["browser_download_url"]?.GetValue<string>();
             }
@@ -456,18 +470,22 @@ internal static class UpdateService
                 return null;
             }
 
+            // UPDATETRUST_01 — refuse an asset URL that is not HTTPS to a pinned GitHub host.
             if (!IsAllowedAssetUrl(url!))
             {
                 RuntimeLog.Fail("UPDATE", $"Release {tag} points its asset at an unexpected location; refusing to download it.");
                 return null;
             }
 
+            // UPDATETRUST_01 — the tag becomes a directory name below. Reject it here, while we can
+            // still stay silent, rather than at download time.
             if (!TrySanitizeTagForPath(tag!, out _))
             {
                 RuntimeLog.Fail("UPDATE", $"Release tag '{tag}' is not usable as a folder name; staying silent.");
                 return null;
             }
 
+            // digest looks like "sha256:<hex>" — the publisher already trusts this exact value.
             string? digest = asset?["digest"]?.GetValue<string>();
             string? sha256 = null;
             if (!string.IsNullOrEmpty(digest))
@@ -478,6 +496,9 @@ internal static class UpdateService
 
             long size = asset?["size"]?.GetValue<long>() ?? 0;
 
+            // SYS-PAYLOADSPLIT — the small package is optional. A release that does not publish one
+            // behaves exactly as before, which is what makes this safe to ship ahead of the build
+            // change that starts producing it.
             string? appOnlyUrl = appOnlyAsset?["browser_download_url"]?.GetValue<string>();
             if (!string.IsNullOrWhiteSpace(appOnlyUrl) && !IsAllowedAssetUrl(appOnlyUrl!))
             {
@@ -530,7 +551,7 @@ internal static class UpdateService
         }
         catch (System.Exception swallowed3)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -589,6 +610,7 @@ internal static class UpdateService
         }
         catch (OperationCanceledException)
         {
+            // A cancel is not a fault (FAULTTIER_01) and is not a reason to pick the small package.
             return false;
         }
         catch (Exception ex)
@@ -603,6 +625,8 @@ internal static class UpdateService
     {
         PurgeOldDownloadFolders();
 
+        // SYS-PAYLOADSPLIT — resolved here, once, before anything is fetched, so the size the user
+        // is told about below is the size that is actually downloaded.
         bool appOnly = await RuntimeAlreadyMatchesAsync(release).ConfigureAwait(false);
         if (appOnly)
         {
@@ -611,6 +635,21 @@ internal static class UpdateService
               + $"({release.DescribeDownloadSize(true)} rather than {release.DescribeDownloadSize(false)}).");
         }
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // UPDATETRUST_01 — THE TAG IS UNTRUSTED INPUT AND IT IS ABOUT TO BECOME A DIRECTORY NAME.
+        //
+        // WHAT WAS WRONG: this was Path.Combine(GetTempPath(), DownloadFolderRootName, release.Tag)
+        // with release.Tag straight out of the GitHub JSON. The only gate upstream is
+        // DeploymentLifecycle.TryParseVersion, which does TrimStart('v','V') then
+        // TakeWhile(IsDigit || '.') — it validates a PREFIX and silently discards the rest. So
+        // "9.9.9\..\..\Microsoft\Windows\Start Menu\Programs\Startup" parses happily as 9.9.9 and
+        // was then used verbatim as a folder name. Path.Combine does not reject "..", so the .exe
+        // landed wherever the tag pointed — a persistence primitive, one JSON field wide.
+        //
+        // The fix rejects rather than strips (a stripped traversal silently collides with another
+        // release's folder) and then ASSERTS containment on the resolved path, so even a sanitiser
+        // bug cannot put a file outside the download root.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         if (!TrySanitizeTagForPath(release.Tag, out string tagFolderName))
         {
             RuntimeLog.Fail("UPDATE", $"Refusing to download release '{release.Tag}': the tag is not a usable folder name.");
@@ -655,7 +694,7 @@ internal static class UpdateService
             catch (Exception ex)
             {
                 dialogShown.SetException(ex);
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             }
         });
         await dialogShown.Task.ConfigureAwait(false);
@@ -672,6 +711,7 @@ internal static class UpdateService
             long copied = 0;
             DateTime lastReport = DateTime.MinValue;
 
+            // Network guard: 45-second per-chunk read stall timeout to prevent hanging indefinitely
             while (true)
             {
                 using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
@@ -710,6 +750,15 @@ internal static class UpdateService
 
             File.Move(partPath, finalPath, overwrite: true);
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // UPDATETRUST_01 — RE-HASH THE PATH WE ARE ACTUALLY GOING TO EXECUTE.
+            //
+            // The hash above was computed over partPath; the file then got RENAMED and a DIFFERENT
+            // path is launched below. That rename window was a time-of-check/time-of-use gap: the
+            // bytes that were verified and the bytes that run were never proven to be the same
+            // bytes. Re-hashing finalPath costs one sequential read of a file already in the page
+            // cache and closes the gap completely.
+            // ══════════════════════════════════════════════════════════════════════════════════
             string finalHash;
             await using (FileStream finalStream = File.OpenRead(finalPath))
             {
@@ -721,6 +770,18 @@ internal static class UpdateService
                 throw new InvalidOperationException("The installer changed on disk after it was verified. Nothing was installed.");
             }
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // UPDATETRUST_01 — PROVE THE PUBLISHER, NOT JUST THE BYTES.
+            //
+            // The SHA-256 above and the URL it validates come out of the SAME JSON document. That
+            // pair proves transport integrity and nothing more: whoever can produce that response
+            // controls both halves at once. This is the only check that asks "did WE sign this?",
+            // and it runs on the exact path about to be executed with elevation.
+            //
+            // See AuthenticodeVerifier for why the anchor is the running process rather than a
+            // hardcoded thumbprint, and why an unsigned running build degrades to hash-only
+            // LOUDLY instead of failing closed.
+            // ══════════════════════════════════════════════════════════════════════════════════
             if (appOnly)
                 executablePath = ExtractCompactInstaller(finalPath, folder);
             var verdict = AuthenticodeVerifier.EvaluateUpdateCandidate(
@@ -734,6 +795,32 @@ internal static class UpdateService
                         "The downloaded installer failed its signature check and was deleted. Nothing was installed." +
                         Environment.NewLine + trustDetail);
 
+                // ══════════════════════════════════════════════════════════════════════════
+                // UPDATETRUST_02 — NoAnchor IS A REFUSAL, NOT A WARNING.
+                //
+                // This branch used to log one line and fall through to Process.Start with
+                // --install --auto-update, i.e. it executed the downloaded binary elevated on the
+                // strength of a SHA-256 read out of the same GitHub JSON document that supplied
+                // the URL. That hash proves transport integrity and nothing else. Anyone able to
+                // produce that response body — a compromised repo or CI token, a TLS-terminating
+                // proxy, a mis-issued certificate — controls the payload AND the fingerprint that
+                // validates it, in one move.
+                //
+                // AuthenticodeVerifier's own class comment names this as the attack it exists to
+                // close. Keeping a fall-through for unsigned builds meant it was never closed in
+                // production, because production WAS the unsigned build (SIGNMANDATE_01).
+                //
+                // Refusing costs the one thing a warning was protecting: in-app auto-update for
+                // installs that are themselves unsigned. That is a real regression and it is the
+                // correct trade — the user is told exactly what happened and sent to the release
+                // page to install the signed build by hand, ONCE. From then on they have an
+                // anchor and auto-update works normally and verifiably.
+                //
+                // FVS_ALLOW_UNSIGNED_UPDATE=1 restores the old behaviour for developers testing
+                // the update path against unsigned local builds. It is read from the environment
+                // on purpose: it cannot be set by a downloaded payload, a settings file or a
+                // server response, so nothing an attacker controls can re-open this door.
+                // ══════════════════════════════════════════════════════════════════════════
                 case AuthenticodeVerifier.TrustVerdict.NoAnchor:
                     if (!string.Equals(Environment.GetEnvironmentVariable("FVS_ALLOW_UNSIGNED_UPDATE"), "1", StringComparison.Ordinal))
                     {
@@ -760,11 +847,15 @@ internal static class UpdateService
                     break;
             }
 
+            // Honour a Cancel clicked during verification/handoff — never install past a cancel.
             cts.Token.ThrowIfCancellationRequested();
 
             Dispatcher.UIThread.Post(() => progressWindow?.MarkHandoffToInstaller());
             RuntimeLog.Info("UPDATE", $"Download of {release.Tag} verified (sha256 {finalHash[..12]}…). Handing off to installer with --auto-update.");
 
+            // --auto-update makes DeploymentLifecycle force the preserve-settings answer to YES
+            // without asking, then relaunch the app. Windows will still show its own UAC consent
+            // once — that is OS security and cannot (and should not) be bypassed by any app.
             var installer = new ProcessStartInfo(executablePath) { UseShellExecute = true };
             installer.ArgumentList.Add("--install");
             installer.ArgumentList.Add("--auto-update");
@@ -784,6 +875,7 @@ internal static class UpdateService
         {
             RuntimeLog.Info("UPDATE", "Update download cancelled by the user; current install untouched.");
             TryDeleteFile(partPath);
+            // UPDATETRUST_01 — a cancel after the rename must not leave a runnable installer behind.
             TryDeleteFile(finalPath);
             if (executablePath != finalPath) TryDeleteFile(executablePath);
         }
@@ -791,6 +883,8 @@ internal static class UpdateService
         {
             RuntimeLog.Fail("UPDATE", $"Update download/verify failed: {ex.Message}");
             TryDeleteFile(partPath);
+            // UPDATETRUST_01 — every rejection path removes the artifact, including one rejected
+            // AFTER the rename (bad re-hash, failed signature check).
             TryDeleteFile(finalPath);
             if (executablePath != finalPath) TryDeleteFile(executablePath);
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -806,7 +900,7 @@ internal static class UpdateService
         {
             Dispatcher.UIThread.Post(() => { try { progressWindow?.Close(); } catch (System.Exception swallowed5)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             } });
         }
 
@@ -882,6 +976,7 @@ internal static class UpdateService
         string candidate = tag!.Trim();
         if (candidate.Length == 0 || candidate.Length > 64) return false;
 
+        // Leading/trailing dots and any ".." run are traversal or Windows-illegal names.
         if (candidate.StartsWith('.') || candidate.EndsWith('.')) return false;
         if (candidate.Contains("..", StringComparison.Ordinal)) return false;
 
@@ -894,6 +989,7 @@ internal static class UpdateService
             if (!ok) return false;
         }
 
+        // Reserved Windows device names, with or without an extension.
         string stem = candidate;
         int dot = stem.IndexOf('.');
         if (dot >= 0) stem = stem[..dot];
@@ -930,7 +1026,7 @@ internal static class UpdateService
     {
         try { if (File.Exists(path)) File.Delete(path); } catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
     }
 }

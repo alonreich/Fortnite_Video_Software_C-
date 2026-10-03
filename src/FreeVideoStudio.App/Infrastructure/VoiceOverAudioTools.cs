@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -95,6 +98,9 @@ internal static class VoiceOverAudioTools
             RuntimeLog.Debug("VoiceOver", $"Temp take '{System.IO.Path.GetFileName(path)}' is still locked; leaving it for temp cleanup.");
         });
     }
+// ⚠️ RetirePreviewPlayersAsync stayed in VoiceOverWindow: it takes List<PreviewPlayer>, a PRIVATE
+    // nested type of that window that owns live NAudio handles. Promoting it is part of the
+    // device-ownership work (R7), not of this extraction.
 
     /// <summary>
     /// LEAK_02 — cancel a superseded generation, then dispose it OFF the interface thread.
@@ -183,6 +189,7 @@ internal static class VoiceOverAudioTools
         }
         catch (Exception ex)
         {
+            // A preference that cannot be written is not worth failing an export over.
             RuntimeLog.Fail("VoiceOver", $"Could not save the voice-protection choices: {ex.Message}");
         }
     }

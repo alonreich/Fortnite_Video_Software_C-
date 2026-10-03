@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -14,7 +17,7 @@ public sealed partial class ExportVideoPipeline
     private static readonly HashSet<string> FrameMetadataFilters =
         ["setpts", "fps", "trim", "select", "loop", "split", "null", "nullsink", "setsar", "concat"];
     private static readonly HashSet<string> AudioFilters =
-        ["anull", "anullsrc", "atrim", "asetpts", "aresample", "aformat", "atempo", "afade",
+        ["anull", "anullsrc", "atrim", "asetpts", "aresample", "aformat", "atempo", "rubberband", "afade",
          "volume", "asplit", "amix", "adelay", "apad", "loudnorm", "alimiter", "equalizer",
          "highpass", "lowpass", "agate", "acrossover", "sidechaincompress"];
 
@@ -90,6 +93,8 @@ public sealed partial class ExportVideoPipeline
         string name = token[start..nameEnd];
         if (FrameMetadataFilters.Contains(name) || AudioFilters.Contains(name)) return true;
 
+        // Only these exact software operations have a verified GPU equivalent here.
+        // Colour conversions, padding, crop, zoom and fades must not be silently removed.
         int labels = token.IndexOf('[', nameEnd);
         if (labels < 0) labels = token.Length;
         string filter = token[start..labels];

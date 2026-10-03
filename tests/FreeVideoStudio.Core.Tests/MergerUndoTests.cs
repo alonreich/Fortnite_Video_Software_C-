@@ -67,12 +67,14 @@ public class MergerUndoTests
         int resets = 0;
         q.CollectionChanged += (s, e) => { if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) resets++; };
 
+        // Remove b and d, reorder, re-add a duplicate of a as a new clip.
         var dupA = new EdlClip { Path = "a" };
         var target = new[] { clips[2], clips[0], dupA };
         MergerSession.SyncQueue(q, ids, target);
         Assert.Equal(new[] { "c", "a", "a" }, q);
         Assert.Equal(target.Select(c => c.ClipId), ids.Ids);
 
+        // And back (undo): b and d come back with their ORIGINAL ids.
         MergerSession.SyncQueue(q, ids, clips);
         Assert.Equal(new[] { "a", "b", "c", "d" }, q);
         Assert.Equal(clips.Select(c => c.ClipId), ids.Ids);
@@ -105,18 +107,18 @@ public class MergerUndoTests
             states.Add(u);
         }
 
-        q.Add("c"); Edit(Snapshot(true, 1, null));
-        q.Move(2, 0); Edit(Snapshot(true, 1, null));
-        Edit(Snapshot(false, 1, null));
-        Edit(Snapshot(false, 1.5, null));
-        Edit(Snapshot(false, 1.5, new EdlThumbnail(new EdlAnchor(ids.Ids[1], 2_000_000))));
+        q.Add("c"); Edit(Snapshot(true, 1, null));                                                  // 1 add clip
+        q.Move(2, 0); Edit(Snapshot(true, 1, null));                                                // 2 reorder
+        Edit(Snapshot(false, 1, null));                                                             // 3 scraper off
+        Edit(Snapshot(false, 1.5, null));                                                           // 4 speed
+        Edit(Snapshot(false, 1.5, new EdlThumbnail(new EdlAnchor(ids.Ids[1], 2_000_000))));         // 5 thumbnail
         var final = stack.Current;
 
         for (int i = 4; i >= 0; i--)
         {
             var back = stack.Undo()!;
             Assert.Equal(states[i], back);
-            MergerSession.SyncQueue(q, ids, back.Clips);
+            MergerSession.SyncQueue(q, ids, back.Clips);   // what the window does
             Assert.Equal(back.Clips.Select(c => c.Path), q);
             Assert.Equal(back.Clips.Select(c => c.ClipId), ids.Ids);
         }
@@ -132,6 +134,7 @@ public class MergerUndoTests
         }
         Assert.Equal(final, stack.Current);
 
+        // ReplaceCurrent never touches either branch.
         stack.Undo();
         stack.ReplaceCurrent(stack.Current with { });
         Assert.True(stack.CanRedo);
@@ -147,10 +150,10 @@ public class MergerUndoTests
         var idA = ids.Ids[0];
 
         q.Move(0, 2);
-        Assert.Equal(idA, ids.Ids[2]);
+        Assert.Equal(idA, ids.Ids[2]);                // Move keeps identity
 
-        q.RemoveAt(2); q.Insert(0, "a");
-        Assert.NotEqual(idA, ids.Ids[0]);
+        q.RemoveAt(2); q.Insert(0, "a");              // the old reorder
+        Assert.NotEqual(idA, ids.Ids[0]);             // a NEW id: effects keyed by the old one would be dropped
     }
 
     [Fact]

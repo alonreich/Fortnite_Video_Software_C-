@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using FreeVideoStudio.Core.Infrastructure;
@@ -64,7 +67,7 @@ public sealed class StateTransferStore
         }
         catch (System.Exception swallowed6)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject { ["schema_version"] = SchemaVersion };
         }
     }
@@ -104,7 +107,7 @@ public sealed class StateTransferStore
             }
             catch (FreeVideoStudio.Core.Infrastructure.LockException swallowed3)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
                 return new JsonObject();
             }
         }, cancellationToken).ConfigureAwait(false);
@@ -142,7 +145,7 @@ public sealed class StateTransferStore
         }
         catch (System.Exception swallowed5)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject();
         }
     }
@@ -176,11 +179,11 @@ public sealed class StateTransferStore
             }
             catch (FreeVideoStudio.Core.Infrastructure.LockException swallowed2)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             }
             catch (OperationCanceledException swallowed20)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed20);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed20);   // FAULTTIER_02 — no failure is silent.
             }
             catch (Exception ex)
             {
@@ -220,11 +223,11 @@ public sealed class StateTransferStore
             }
             catch (FreeVideoStudio.Core.Infrastructure.LockException swallowed)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             }
             catch (OperationCanceledException swallowed9)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
             }
             catch (Exception ex)
             {
@@ -342,7 +345,7 @@ public sealed class StateTransferStore
             }
             catch (FreeVideoStudio.Core.Infrastructure.LockException swallowed12)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed12);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed12);   // FAULTTIER_02 — no failure is silent.
             }
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -389,7 +392,7 @@ public sealed class StateTransferStore
         }
         catch (UnauthorizedAccessException swallowed18)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed18);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed18);   // FAULTTIER_02 — no failure is silent.
             return new JsonObject();
         }
     }
@@ -453,12 +456,12 @@ public sealed class StateTransferStore
         }
         catch (InvalidDataException swallowed13)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed13);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed13);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (Exception swallowed8)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
 
@@ -482,11 +485,11 @@ public sealed class StateTransferStore
         }
         catch (IOException swallowed19)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed19);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed19);   // FAULTTIER_02 — no failure is silent.
         }
         catch (UnauthorizedAccessException swallowed14)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed14);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed14);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -611,12 +614,12 @@ public sealed class StateTransferStore
         }
         catch (InvalidOperationException swallowed10)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed10);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (FormatException swallowed4)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -631,12 +634,12 @@ public sealed class StateTransferStore
         }
         catch (InvalidOperationException swallowed21)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed21);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed21);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (FormatException swallowed15)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed15);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed15);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -651,12 +654,12 @@ public sealed class StateTransferStore
         }
         catch (InvalidOperationException swallowed16)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed16);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed16);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (FormatException swallowed17)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed17);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed17);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -671,12 +674,12 @@ public sealed class StateTransferStore
         }
         catch (InvalidOperationException swallowed11)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed11);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed11);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (FormatException swallowed7)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

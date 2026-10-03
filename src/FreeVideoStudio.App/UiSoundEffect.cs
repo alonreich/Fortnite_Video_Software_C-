@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.Threading;
@@ -176,6 +179,9 @@ public static class UiSoundEffect
         if (i < 0 || i >= CueCount) return;
         if (_shutdown || _engineFailed) return;
         if (Volatile.Read(ref _suppressionDepth) > 0) return;
+        // UISND_03 — the suite's shared mute silences the app's own sounds too (when the Windows
+        // session carries the master, its mute already does; this covers the fallback).
+        if (FreeVideoStudio.Core.Media.MpvIpcClient.GlobalMuted) return;
         if (Volatile.Read(ref _activeVoices) >= MaxConcurrentVoices) return;
 
         if (!TryReadSettings(out float gain)) return;
@@ -200,7 +206,7 @@ public static class UiSoundEffect
         catch (System.Exception swallowed)
         {
             Interlocked.Decrement(ref _activeVoices);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -231,7 +237,7 @@ public static class UiSoundEffect
         }
         catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return true;
         }
     }
@@ -252,12 +258,13 @@ public static class UiSoundEffect
                 _volume!.Volume = gain;
                 _mixer!.AddMixerInput((ISampleProvider)new CachedSoundSampleProvider(sound));
                 queued = true;
+                ArmIdleCloseLocked();
             }
         }
         catch (Exception ex)
         {
             SafeLog("UI sound playback failed: " + ex.Message);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -291,7 +298,7 @@ public static class UiSoundEffect
         catch (Exception ex)
         {
             SafeLog($"UI sound decode failed for {ResourceNames[cueIndex]}: {ex.Message}");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }
@@ -304,7 +311,7 @@ public static class UiSoundEffect
 
         try
         {
-            if (WaveInterop.waveOutGetNumDevs() <= 0)
+            if (WaveInterop.waveOutGetNumDevs() <= 0)   // AOTCLEAN_02 — WaveOut (umbrella package) is gone; same winmm call
             {
                 _engineFailed = true;
                 SafeLog("No audio output device present - UI sounds disabled for this session.");
@@ -316,7 +323,8 @@ public static class UiSoundEffect
 
             _volume = new VolumeSampleProvider(_mixer) { Volume = 1f };
 
-            _output = new WaveOutEvent { DesiredLatency = 150 };
+            // UISND_02 — 50 ms (3 x ~17 ms buffers) instead of 150 ms: a click is heard WITH the press.
+            _output = new WaveOutEvent { DesiredLatency = 50, NumberOfBuffers = 3 };
             _output.Init(_volume);
             _output.Play();
             return true;
@@ -326,9 +334,37 @@ public static class UiSoundEffect
             _engineFailed = true;
             TearDownLocked();
             SafeLog("UI sound engine could not start - UI sounds disabled for this session: " + ex.Message);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // UISND_01 — THE OUTPUT IS CLOSED WHEN IDLE. The mixer runs with ReadFully, so an open
+    // WaveOut streams SILENCE forever: an audio stream that never ends, which Windows reports as
+    // "An audio stream is currently in use" (powercfg /requests) and which can keep the machine from
+    // sleeping. The device is now released IdleCloseMs after the last sound finished and reopened on
+    // the next click (EnsureEngineLocked).
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    private const int IdleCloseMs = 2000;
+    private static Timer? _idleTimer;
+
+    private static void ArmIdleCloseLocked()
+    {
+        _idleTimer ??= new Timer(static _ =>
+        {
+            lock (_engineLock)
+            {
+                if (_output == null) return;
+                if (Volatile.Read(ref _activeVoices) > 0)
+                {
+                    ArmIdleCloseLocked();
+                    return;
+                }
+                TearDownLocked();
+            }
+        }, null, Timeout.Infinite, Timeout.Infinite);
+        _idleTimer.Change(IdleCloseMs, Timeout.Infinite);
     }
 
     private static void OnMixerInputEnded(object? sender, SampleProviderEventArgs e)
@@ -345,6 +381,8 @@ public static class UiSoundEffect
         lock (_engineLock)
         {
             _shutdown = true;
+            try { _idleTimer?.Dispose(); } catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+            _idleTimer = null;
             TearDownLocked();
         }
     }

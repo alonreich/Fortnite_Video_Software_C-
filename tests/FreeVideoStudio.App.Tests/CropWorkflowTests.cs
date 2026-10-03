@@ -92,7 +92,7 @@ public sealed class CropWorkflowTests : IAsyncLifetime
     {
         MaskOverlayManager.EnsureDefaults();
         SettingsManager.Instance.ActiveMaskOverlay = "Blocked";
-        Directory.CreateDirectory(Profile("Blocked"));
+        Directory.CreateDirectory(Profile("Blocked")); // A directory cannot be replaced by a JSON file.
         Assert.False(MaskOverlayManager.SyncActiveProfileFromCurrentConfig());
     }
 
@@ -152,7 +152,7 @@ public sealed class CropWorkflowTests : IAsyncLifetime
     [InlineData(false)]
     public async Task AddingHudRestoresTemporaryZoomAndPreservesManualZoom(bool temporaryZoom)
     {
-        var window = new CropToolWindow();
+        var window = new CropToolWindow(); // Never shown: no native video player is started.
         var source = Nested("SourceRect", 1500, 900, 160, 80);
         Set(window, "_sourceSelection", source);
         string snapshot = Path.Combine(_root, "frame.png");

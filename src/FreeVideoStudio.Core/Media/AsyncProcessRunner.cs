@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -30,6 +33,9 @@ public static class AsyncProcessRunner
 
         try { ChildProcessTracker.AddProcess(process); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
+        // Reader tasks deliberately carry NO cancellation token: they run to EOF when the child
+        // exits and closes its pipes, so both streams always drain fully before this Process
+        // object is disposed — no abandoned pipe buffers, no lost stderr tail.
         Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
         Task<string> stderrTask = process.StandardError.ReadToEndAsync();
 
@@ -39,6 +45,11 @@ public static class AsyncProcessRunner
         }
         catch (OperationCanceledException)
         {
+            // Cancellation or timeout: stop the child through the bounded cooperative ladder
+            // (stdin 'q' quit command → 1500 ms grace → Kill(entireProcessTree) → 2000 ms exit
+            // confirmation) instead of an instant hard kill, then make sure both reader tasks
+            // have completed before the Process object leaves scope. The original
+            // OperationCanceledException is re-thrown so caller semantics are unchanged.
             await GracefulProcessTerminator.TerminateAsync(
                 process,
                 BuildLogTag(psi),

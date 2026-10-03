@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/08_APPLICATION_COMPOSITION.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,7 +27,7 @@ public sealed class FaultVisibilityTests
     [Fact]
     public void RecoverableFaultIsLoggedOutsideDevModeAndThrottledPerCallSite()
     {
-        Assert.False(RuntimeLog.IsDevMode);
+        Assert.False(RuntimeLog.IsDevMode);   // the production condition this test is about
 
         var lines = new List<string>();
         void Capture(string l) { lock (lines) lines.Add(l); }

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -7,6 +10,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using FreeVideoStudio.Core.Media;
 
+// ⚠️ NAME COLLISION — DO NOT REPLACE THIS ALIAS WITH A BARE `MemePlacement`.
+// This file's own namespace, FreeVideoStudio.App.Infrastructure, ALREADY declares an
+// unrelated `enum MemePlacement { Start, End }` in MemePlacementStore.cs (MEME_02 — which end of
+// the video a SHIPPED meme defaults to). A namespace's own members beat a `using` import, so a
+// bare `MemePlacement` here silently binds to that ENUM instead of the Core RECORD this file
+// actually works with, and every member access then fails with "does not contain a definition
+// for 'DurationSec'". The alias is the fix, and it must be named something OTHER than
+// `MemePlacement` — an alias that collides with a member of the same namespace is itself an error.
 using CoreMeme = FreeVideoStudio.Core.Media.MemePlacement;
 
 namespace FreeVideoStudio.App.Infrastructure;
@@ -123,9 +134,6 @@ public sealed class MemePreviewDirector
     /// <summary>True whenever mpv is NOT showing the gameplay. Host ticks must early-return on this.</summary>
     public bool IsActive => CurrentPhase != Phase.Idle;
 
-    /// <summary>True only while the meme picture is actually on screen and running.</summary>
-    public bool IsPlayingMeme => CurrentPhase == Phase.PlayingMeme;
-
     /// <summary>Absolute source seconds of the gameplay frame the current cutaway is parked on.</summary>
     public double AnchorAbsSourceSec { get; private set; }
 
@@ -169,13 +177,16 @@ public sealed class MemePreviewDirector
         if (memes != null)
         {
             foreach (var m in memes)
-                if (m.DurationSec > 0.001) _memes.Add(m);
+                // MEMEMODE_01 — a corner overlay never pauses, seeks or swaps the gameplay: it is not a cutaway.
+                if (m.DurationSec > 0.001 && !m.IsCornerOverlay) _memes.Add(m);
         }
         _memes.Sort((a, b) => a.AtSourceSecRelative.CompareTo(b.AtSourceSecRelative));
 
         bool changed = Signature() != before;
         if (changed)
         {
+            // A moved meme is a different meme as far as re-arming goes; drop any stale suppression
+            // so the new position fires the first time playback reaches it.
             _suppressId = null;
             _suppressUntilSourceSec = 0;
         }
@@ -213,7 +224,7 @@ public sealed class MemePreviewDirector
             {
                 case Phase.Idle: TickIdle(ipc); break;
                 case Phase.PlayingMeme: TickPlaying(ipc); break;
-                default: break;
+                default: break;   // the two swap phases are driven by their own async worker
             }
         }
         catch (Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
@@ -226,11 +237,11 @@ public sealed class MemePreviewDirector
         _lastSourceSec = now;
 
         if (_memes.Count == 0 || Suspended) return;
-        if (double.IsNaN(prev)) return;
-        if (ipc.IsPaused) return;
+        if (double.IsNaN(prev)) return;          // first tick after a seek — nothing crossed yet
+        if (ipc.IsPaused) return;                // a cutaway is a PLAYBACK event, never a parked one
 
         double delta = now - prev;
-        if (delta <= 0 || delta > SeekJumpSec) return;
+        if (delta <= 0 || delta > SeekJumpSec) return;   // backwards or a jump: a seek, not playback
 
         double trimStart = _trimStartSec();
         foreach (var m in _memes)
@@ -239,6 +250,8 @@ public sealed class MemePreviewDirector
             if (anchor <= prev + CrossEps || anchor > now + CrossEps) continue;
             if (_suppressId == m.Id && now < _suppressUntilSourceSec) continue;
 
+            // Set the phase SYNCHRONOUSLY, before the worker is launched: Tick runs on the UI
+            // thread every ~33ms and would otherwise fire the same meme several times over.
             CurrentPhase = Phase.LoadingMeme;
             _ = RunMemeAsync(ipc, m, anchor);
             return;
@@ -247,12 +260,17 @@ public sealed class MemePreviewDirector
 
     private void TickPlaying(MpvIpcClient ipc)
     {
+        // Mirror mpv's own pause into the meme clock, so pausing during a meme pauses the meme
+        // rather than letting it silently time out behind a frozen picture.
         if (ipc.IsPaused) { if (_memeClock.IsRunning) _memeClock.Stop(); }
         else if (!_memeClock.IsRunning) _memeClock.Start();
 
         double elapsed = _memeClock.Elapsed.TotalSeconds;
         MemeElapsedSec = Math.Min(elapsed, MemeDurationSec);
 
+        // The declared length is what the EXPORT uses, so it is what the preview honours. eof is a
+        // second opinion for a meme whose real length is shorter than its probe said, and the last
+        // clause is a backstop against a file that never reports eof at all.
         bool done = elapsed >= MemeDurationSec - 0.03
                     || (ipc.IsEof && elapsed > 0.15)
                     || elapsed > MemeDurationSec + 5.0;
@@ -278,19 +296,30 @@ public sealed class MemePreviewDirector
             _setBusy(true, "Loading the meme…");
             MemeStarted?.Invoke();
 
+            // Park the gameplay ON the anchor first. If anything below fails, the preview is still
+            // sitting exactly where the meme belongs instead of wherever playback had drifted to.
             await SafeSet(ipc, "pause", "yes");
             try { await ipc.SetPropertyDoubleAsync("time-pos", anchorAbs); }
             catch (Exception ex) { RuntimeLog.Swallowed(ex); }
 
+            // A zoom crop or a video filter belongs to the GAMEPLAY. The export concatenates the
+            // meme untouched, so cropping it here would show the user something that will not
+            // happen. Saved, cleared, and put back on the way home.
             _savedCrop = SafeGet(ipc, "video-crop");
             _savedVf = SafeGet(ipc, "vf");
             _savedImageDuration = SafeGet(ipc, "image-display-duration");
             await SafeSet(ipc, "video-crop", "");
             await SafeSet(ipc, "vf", "");
 
+            // ⚠️ AND THE PLAYBACK RATE. mpv's `speed` is global and survives a loadfile, so a meme
+            // that fires while the gameplay is inside a 2x block would play at 2x here and at 1x in
+            // the export — the preview would be lying about the one thing it exists to show. The
+            // export concatenates the meme at its own natural rate, so the preview does too.
             _savedSpeed = SafeGet(ipc, "speed");
             await SafeSet(ipc, "speed", "1.0");
 
+            // A still image has no intrinsic length; mpv must be told to hold it for exactly as
+            // long as the export will, or it flashes past in mpv's default second.
             await SafeSet(ipc, "image-display-duration",
                 MemeDurationSec.ToString("F3", CultureInfo.InvariantCulture));
 
@@ -343,6 +372,8 @@ public sealed class MemePreviewDirector
                     ReturnTimeoutMs);
             }
 
+            // The playhead is now ON the anchor, which is exactly the condition that fires this
+            // meme. Suppress it until the gameplay has genuinely moved past.
             _suppressId = ActiveMemeId;
             _suppressUntilSourceSec = AnchorAbsSourceSec + ReArmGuardSec;
             _lastSourceSec = ipc.CurrentTime;

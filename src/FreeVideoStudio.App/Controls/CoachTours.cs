@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Collections.Generic;
 
 namespace FreeVideoStudio.App.Controls;
@@ -89,6 +92,11 @@ public static class CoachTours
             "Click any clip in the list to watch it here, so you can check you queued the right ones.",
             "VideoAreaBorder", CoachGesture.Point),
 
+        // MERGERBOTTOM_01 — the "Trim the joined video" step pointed at SetClipInButton, which no
+        // longer exists. A CoachStep whose target cannot be found has nothing to highlight, so the
+        // step would have shown its text over a blank screen. Replaced with the readout that took
+        // that corner of the window, which is worth a step of its own: it is the only place the
+        // user finds out how big and how long the result will be BEFORE waiting for the merge.
         new CoachStep(
             "Check the size before you wait",
             "This is how big the finished file will be and how long it will run, for the whole list at once. Move the quality dial beside it and both numbers follow.",

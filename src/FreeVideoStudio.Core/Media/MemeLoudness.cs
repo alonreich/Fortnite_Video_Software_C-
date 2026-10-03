@@ -1,4 +1,9 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -9,54 +14,76 @@ namespace FreeVideoStudio.Core.Media;
 
 /// <summary>
 /// ══════════════════════════════════════════════════════════════════════════════════════════════
-/// MEMELEVEL_01 — A MEME IN A MERGE IS AS LOUD AS THE SAME MEME IN THE MAIN APP (Video-Merger-Migration.md P9).
+/// MEMELEVEL_02 — A MEME IS AS LOUD AS THE GAMEPLAY IT INTERRUPTS. Shared by the Main App
+/// (ProcessWorker) and the Merger (MergeClipGraph), so a meme lands at the same level in both.
 ///
-/// The Main App (ProcessWorker, "MEME LEVEL PLAN") measures every meme with sound and brings it to
-/// <see cref="AudioLoudnessProbe.TargetLufs"/>, gain clamped to
-/// [<see cref="AudioLoudnessProbe.MinMusicGainDb"/>, <see cref="AudioLoudnessProbe.MaxMusicGainDb"/>],
-/// then a peak limiter at -2 dB. The Merger's export (MERGEGRAPH_01) now does exactly the same, so a
-/// meme dropped in either app lands at the same level. An unmeasurable meme is left as recorded (with
-/// the limiter). The ProcessWorker copy is left untouched on purpose (Main App export is out of scope);
-/// keep the two in step.
+/// MEMELEVEL_01 pinned every meme to a fixed -14 LUFS while the gameplay is deliberately left at its
+/// recorded level (there is no loudness standard in this app — LOUDSTD_REMOVED_01). A typical
+/// capture sits around -20 to -25 LUFS, so every meme jumped 6-11 dB above the video it cut into,
+/// and the preview (which plays memes raw) never showed it.
+///
+/// Now: gain = measured gameplay loudness − measured meme loudness, clamped to
+/// [<see cref="MinGainDb"/>, <see cref="MaxGainDb"/>]. Either side unmeasured → 0 dB (as recorded).
+/// No per-meme limiter any more: the always-on safety limiter on the final mix
+/// (<see cref="PeakSafety.SafetyLimiterFilter"/>) covers it.
 /// ══════════════════════════════════════════════════════════════════════════════════════════════
 /// </summary>
 public static class MemeLoudness
 {
-    /// <summary>Gain in dB that brings <paramref name="path"/> to the target; 0 when it cannot be measured.</summary>
-    public static async Task<double> GainDbAsync(string ffmpegPath, string path, CancellationToken token)
+    /// <summary>Safety rails: a near-silent meme must not be boosted into a hiss bed.</summary>
+    public const double MaxGainDb = 12.0;
+    public const double MinGainDb = -24.0;
+
+    /// <summary>Measures a meme; null when it cannot be measured.</summary>
+    public static async Task<double?> MeasureLufsAsync(string ffmpegPath, string path, CancellationToken token)
     {
         try
         {
             var reading = await AudioLoudnessProbe.MeasureAsync(ffmpegPath, path, token).ConfigureAwait(false);
             if (reading == null)
             {
-                CoreLogger.Info("Audio", $"Merger meme level could not be measured for '{Path.GetFileName(path)}' — leaving it as recorded.");
-                return 0;
+                CoreLogger.Info("Audio", $"Meme level could not be measured for '{Path.GetFileName(path)}' — leaving it as recorded.");
+                return null;
             }
-            double gain = GainFor(reading.IntegratedLufs);
-            CoreLogger.Info("Audio",
-                $"MERGER MEME LEVEL PLAN: '{Path.GetFileName(path)}' measured {reading.IntegratedLufs:F2} LUFS -> target " +
-                $"{AudioLoudnessProbe.TargetLufs:F1} LUFS = {gain:+0.00;-0.00} dB, then a peak limiter.");
-            return gain;
+            return reading.IntegratedLufs;
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            CoreLogger.Info("Audio", $"Merger meme level measurement skipped: {ex.Message}");
-            return 0;
+            CoreLogger.Info("Audio", $"Meme level measurement skipped: {ex.Message}");
+            return null;
         }
     }
 
-    /// <summary>The Main App's rule: target minus measured, clamped.</summary>
-    public static double GainFor(double integratedLufs)
-        => Math.Clamp(AudioLoudnessProbe.TargetLufs - integratedLufs, AudioLoudnessProbe.MinMusicGainDb, AudioLoudnessProbe.MaxMusicGainDb);
+    /// <summary>Gain that brings a meme measured at <paramref name="memeLufs"/> to <paramref name="gameplayLufs"/>.</summary>
+    public static double GainFor(double? memeLufs, double? gameplayLufs)
+    {
+        if (memeLufs is not double m || gameplayLufs is not double g) return 0.0;
+        if (!double.IsFinite(m) || !double.IsFinite(g) || m < -69.0 || g < -69.0) return 0.0;
+        return Math.Clamp(g - m, MinGainDb, MaxGainDb);
+    }
 
-    /// <summary>Filters appended to a meme's audio (leading comma): volume when the gain matters, then the limiter.</summary>
+    /// <summary>Filters appended to a meme's audio (leading comma): the matching gain, or nothing.</summary>
     public static string Chain(double gainDb)
     {
-        string chain = "";
         if (Math.Abs(gainDb) > 0.01 && double.IsFinite(gainDb))
-            chain += ",volume=" + Math.Pow(10, gainDb / 20.0).ToString("F4", CultureInfo.InvariantCulture);
-        return chain + ",alimiter=limit=-2.0dB:level_in=1:level_out=1";
+            return ",volume=" + Math.Pow(10, gainDb / 20.0).ToString("F4", CultureInfo.InvariantCulture);
+        return "";
+    }
+
+    /// <summary>
+    /// SPLICE_03 — the de-click fade pair for a piece of audio that is butt-joined to an unrelated
+    /// neighbour (a meme, another clip). Same rule as GranularSpeedBuilder's SPLICE_01/02: 8 ms,
+    /// capped at 2% of the piece, nothing on a piece too short to carry it. Leading comma.
+    /// </summary>
+    public static string SpliceFade(double pieceDurationSec)
+    {
+        const double SpliceFadeSec = GranularSpeedBuilder.SpliceFadeSec;
+        if (!(pieceDurationSec > SpliceFadeSec * 3)) return "";
+        double fade = Math.Min(SpliceFadeSec, pieceDurationSec / 50.0);
+        var ci = CultureInfo.InvariantCulture;
+        string f = fade.ToString("F4", ci);
+        double outStart = Math.Max(0, pieceDurationSec - fade);
+        return $",afade=t=in:st=0:d={f},afade=t=out:st={outStart.ToString("F4", ci)}:d={f}";
     }
 }

@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md, docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -10,7 +13,7 @@ using Avalonia.Rendering.Composition;
 using FreeVideoStudio.App.Interop;
 using FreeVideoStudio.Core.Media;
 using System.Runtime.CompilerServices;
-using FreeVideoStudio.App.Interop.D3D;
+using FreeVideoStudio.App.Interop.D3D;   // AOTCLEAN_03 — first-party D3D11/DXGI calls (was Vortice)
 
 namespace FreeVideoStudio.App;
 
@@ -211,6 +214,8 @@ public sealed class MpvVideoView : Control, IDisposable
         var renderMode = VideoRenderMode.Current;
         bool useHardwareInterop = renderMode.UseHardwareAcceleration;
 
+        // GRANULARPERF_01 — native initialization can open audio devices and load drivers.
+        // Only a local handle is touched by the worker, so closing during startup cannot free it twice.
         long started = Environment.TickCount64;
         nint handle = await Task.Run(() => CreateNativePlayer(useHardwareInterop));
         if (_isDisposed || _disposing)
@@ -222,6 +227,7 @@ public sealed class MpvVideoView : Control, IDisposable
         _mpvHandle = handle;
         IpcClient = new MpvIpcClient(handle);
         started = Environment.TickCount64;
+        // WGL window/context ownership stays on the UI thread.
         if (OperatingSystem.IsWindows())
         {
             if (!useHardwareInterop)
@@ -265,7 +271,7 @@ public sealed class MpvVideoView : Control, IDisposable
         MpvWrapper.mpv_set_option_string(handle, "keep-open", "yes");
         MpvWrapper.mpv_set_option_string(handle, "idle", "yes");
         MpvWrapper.mpv_set_option_string(handle, "ytdl", "no");
-        MpvWrapper.mpv_set_option_string(handle, "volume", MpvIpcClient.ToMpvVolume(MpvIpcClient.GlobalMasterVolume).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        MpvWrapper.mpv_set_option_string(handle, "volume", MpvIpcClient.PlayerMpvVolume().ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         if (RuntimeLog.IsDevMode && RuntimeLog.DevLogDir != null)
         {
@@ -366,7 +372,7 @@ public sealed class MpvVideoView : Control, IDisposable
                 try { _renderSignal.WaitOne(66); }
                 catch (ObjectDisposedException swallowed5)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
                     break;
                 }
 
@@ -742,6 +748,7 @@ public sealed class MpvVideoView : Control, IDisposable
         return _initializationTask ??= InitializeMpvAsync(mpvPath);
     }
 
+    /// <summary>Let render threads finish while the dispatcher can still service their queued imports.</summary>
     /// <summary>
     /// MPVSHUTDOWN_01 — the supported preview teardown: two-phase, awaitable, bounded, idempotent.
     /// Interactive UI paths MUST use this, not <see cref="Dispose()"/> (which is the process-final
@@ -771,7 +778,7 @@ public sealed class MpvVideoView : Control, IDisposable
         _renderThreadRunning = false;
         try { _renderSignal.Set(); } catch (ObjectDisposedException swallowed2)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
 
         var phaseA = await PreviewShutdownCoordinator.QuiesceAsync(
@@ -965,6 +972,8 @@ public sealed class MpvVideoView : Control, IDisposable
         _surfaceVisual = null;
         _gpuInterop = null;
         
+        // GPUSLOT_01 — claim each slot atomically before disposing it, so this can never race the
+        // render thread or a pending present completion into a double dispose.
         for (int i = 0; i < SwapChainSize; i++)
         {
             ImportedImageSlot? claimed = System.Threading.Interlocked.Exchange(ref _importedImages[i], null);
@@ -1063,7 +1072,7 @@ public sealed class MpvVideoView : Control, IDisposable
                 try { _renderSignal.WaitOne(_retryPending ? 66 : System.Threading.Timeout.Infinite); }
                 catch (ObjectDisposedException swallowed4)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
                     break;
                 }
 
@@ -1075,7 +1084,7 @@ public sealed class MpvVideoView : Control, IDisposable
         {
             try { RuntimeLog.Fail(InteropLogStep, $"GPU render loop terminated unexpectedly: {ex.Message}"); } catch (System.Exception swallowed9)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed9);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
             }
         }
         finally
@@ -1123,6 +1132,29 @@ public sealed class MpvVideoView : Control, IDisposable
 
                 EnsureRenderTexture(width, height);
 
+                // ══════════════════════════════════════════════════════════════════════════════
+                // GPUPRESENT_02 — TAKE THE SLOT'S PRESENT PERMIT *BEFORE* TOUCHING ITS KEYED MUTEX.
+                //
+                // GPUPRESENT_01 checked the permit AFTER rendering, i.e. after ReleaseSync had
+                // already handed the texture to the compositor's key (ConsumerKey). A frame dropped
+                // at that point left the texture parked on key 1 with NO consumer ever coming for
+                // it. The compositor frees key 0 on its own thread, but the permit is only released
+                // later by the UI-thread continuation. So any UI stall of more than ~16 frames let
+                // the producer lap a slot whose permit was still held, and every drop poisoned one more
+                // slot. Each poisoned slot then cost a 1000ms AcquireSync timeout, while holding
+                // _renderLock, on every lap. The preview slid towards 1 fps until the next resize.
+                //
+                // Now:
+                //   1. The permit is taken first. A slot whose previous present is still in flight
+                //      is SKIPPED (the next free slot is used), so nothing is rendered that cannot
+                //      be presented.
+                //   2. Holding the permit proves no present is in flight for this slot. If the
+                //      texture is nevertheless sitting on ConsumerKey, it is an orphan (a present
+                //      that failed before the compositor acquired it), and it is reclaimed.
+                //   3. Non-blocking candidate probing: If a slot's producer key cannot be acquired
+                //      immediately (0ms), its permit is released and the search continues across
+                //      the 16-slot ring, eliminating the 1000ms render lock stall entirely.
+                // ══════════════════════════════════════════════════════════════════════════════
                 int slotIndex = -1;
                 bool keyedMutexAcquired = false;
                 IDXGIKeyedMutex? acquiredKeyedMutex = null;
@@ -1177,7 +1209,7 @@ public sealed class MpvVideoView : Control, IDisposable
 
                 bool dxObjectLocked = false;
                 bool frameReady = false;
-                ImportedImageSlot? imageForAvalonia = null;
+                ImportedImageSlot? imageForAvalonia = null;   // GPUSLOT_01 — slot, not bare image.
                 CompositionDrawingSurface? surfaceForAvalonia = null;
 
                 var keyedMutex = acquiredKeyedMutex;
@@ -1263,6 +1295,8 @@ public sealed class MpvVideoView : Control, IDisposable
                 {
                     _retryPending = false;
                     _consecutiveDeclines = 0;
+                    // GPUPRESENT_02 — the permit travels with the frame. ImportAndPresentTexture
+                    // owns releasing it from here on, on every path.
                     permitHandedOff = true;
                     ImportAndPresentTexture(_currentBufferIndex, surfaceForAvalonia, imageForAvalonia);
                 }
@@ -1350,6 +1384,8 @@ public sealed class MpvVideoView : Control, IDisposable
             }
         }
 
+        // Texture is currently in use by the compositor.
+        // Return false immediately with zero blocking wait so the caller can check other slots.
         return false;
     }
 
@@ -1437,6 +1473,7 @@ public sealed class MpvVideoView : Control, IDisposable
 
     private void EnsureRenderTexture(int width, int height)
     {
+        // GPUPRESENT_02 — a wedged slot forces a rebuild even at an unchanged size.
         bool forced = _forceSwapChainRebuild;
         if (!forced && _sharedTextures[0] != null && _renderTextureW == width && _renderTextureH == height)
             return;
@@ -1519,10 +1556,14 @@ public sealed class MpvVideoView : Control, IDisposable
     /// </summary>
     private ImportedImageSlot? EnsureImportedImage(int index)
     {
+        // ONE read. The old code read _importedImages[index] four times across the null test, the
+        // IsLost test and the re-import, so the value could change between them.
         ImportedImageSlot? current = System.Threading.Volatile.Read(ref _importedImages[index]);
 
         if (current != null && current.Image.IsLost)
         {
+            // Claim it ourselves before disposing: if anyone else already replaced it, the
+            // CompareExchange fails and the object is not ours to destroy.
             if (ReferenceEquals(System.Threading.Interlocked.CompareExchange(ref _importedImages[index], null, current), current))
             {
                 DisposeImportedImageOnUiThread(current.Image);
@@ -1540,6 +1581,8 @@ public sealed class MpvVideoView : Control, IDisposable
         ImportedImageSlot? replaced = System.Threading.Interlocked.Exchange(ref _importedImages[index], slot);
         if (replaced != null)
         {
+            // Should not happen (only this thread imports), but if a future edit ever adds a second
+            // importer, the displaced image must still be released exactly once.
             DisposeImportedImageOnUiThread(replaced.Image);
         }
 
@@ -1576,6 +1619,7 @@ public sealed class MpvVideoView : Control, IDisposable
             return true;
         }
 
+        // A newer import already replaced it. Disposing now would destroy a LIVE image.
         RuntimeLog.Debug(InteropLogStep, $"Stale present completion for buffer {index} (generation {expected.Generation}); slot already replaced — not disposing.");
         return false;
     }
@@ -1605,13 +1649,17 @@ public sealed class MpvVideoView : Control, IDisposable
                 }
                 catch (Avalonia.Platform.PlatformGraphicsContextLostException swallowed10)
                 {
+                    // The GPU context went away. Retire OUR slot — and only if it is still ours.
                     TryRetireSlot(index, slot);
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed10);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
                 }
                 catch (Exception ex)
                 {
                     TryRetireSlot(index, slot);
 
+                    // E_INVALIDARG used to be swallowed in total silence here, which is precisely how
+                    // the use-after-dispose stayed invisible. It is now logged (throttled), so the
+                    // residual rate after GPUSLOT_01 is measurable instead of assumed to be zero.
                     if (ex is System.Runtime.InteropServices.COMException comEx && (uint)comEx.ErrorCode == 0x80070057)
                     {
                         RuntimeLog.SwallowedThrottled(ex);
@@ -1635,6 +1683,8 @@ public sealed class MpvVideoView : Control, IDisposable
         }
         finally
         {
+            // The post itself failed, so the continuation that would have released the permit will
+            // never run. Release it here or this slot is wedged for the life of the control.
             if (!handedOff)
             {
                 try { gate.Release(); } catch (System.Exception ex) { RuntimeLog.SwallowedThrottled(ex); }
@@ -1777,6 +1827,7 @@ public sealed class MpvVideoView : Control, IDisposable
             _renderTexturePtrs[i] = nint.Zero;
             _sharedTextureHandles[i] = nint.Zero;
 
+            // GPUSLOT_01 — atomic claim, single disposal funnel.
             ImportedImageSlot? claimed = System.Threading.Interlocked.Exchange(ref _importedImages[i], null);
             if (claimed != null) DisposeImportedImageOnUiThread(claimed.Image);
         }
@@ -1869,7 +1920,7 @@ public sealed class MpvVideoView : Control, IDisposable
             try { swThreadStopped = _swThread.Join(TimeSpan.FromSeconds(3)); } catch (System.Exception swallowed8)
             {
                 swThreadStopped = false;
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed8);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
             }
             if (!swThreadStopped)
             {
@@ -1886,7 +1937,7 @@ public sealed class MpvVideoView : Control, IDisposable
         catch (System.Exception swallowed3)
         {
             renderGateAcquired = false;
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -1900,7 +1951,7 @@ public sealed class MpvVideoView : Control, IDisposable
             catch (System.Exception swallowed7)
             {
                 gpuThreadStopped = false;
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
             }
             if (!gpuThreadStopped)
             {
@@ -1940,7 +1991,7 @@ public sealed class MpvVideoView : Control, IDisposable
         catch (System.Exception swallowed6)
         {
             renderLockAcquired = false;
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
         }
 
         if (!renderLockAcquired)

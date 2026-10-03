@@ -41,7 +41,7 @@ public sealed class CropConfigTests : IAsyncLifetime
         older["marker"] = "older";
         var newest = CropConfigDefaults.Create();
         newest["marker"] = "newest";
-        newest["schema_version"] = 3;
+        newest["schema_version"] = 3; // Valid older profiles remain recoverable.
         newest.Remove("crops_source");
         AtomicJsonFile.WriteObject(_paths.CropCoordinatesFile + ".bak3", older);
         AtomicJsonFile.WriteObject(_paths.CropCoordinatesFile + ".bak2", newest);
@@ -105,7 +105,7 @@ public sealed class CropConfigTests : IAsyncLifetime
         foreach (string section in CropConfigDefaults.RequiredSections.Append("crops_source"))
             Assert.DoesNotContain(sanitized[section]!.AsObject(), kvp => HudConfig.IsRetiredRole(kvp.Key));
         Assert.Equal(expected, MobileFilterBuilder.Build("[main]", "[hud]", config, showTeammates: true).filterChain);
-        Assert.NotNull(config["crops_1080p"]!["BOSS_HP"]);
+        Assert.NotNull(config["crops_1080p"]!["BOSS_HP"]); // Sanitizing does not mutate its input.
     }
 
     [Fact]
@@ -145,6 +145,7 @@ public sealed class CropConfigTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        // Windows indexers and virus scanners can briefly hold a newly written temp directory.
         for (int attempt = 0; ; attempt++)
         {
             try

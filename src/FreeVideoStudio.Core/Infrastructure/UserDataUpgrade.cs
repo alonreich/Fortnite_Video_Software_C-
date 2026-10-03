@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -13,8 +15,6 @@ public sealed class UserDataUpgrade
 
     public static string LocalRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FreeVideoStudio");
-    public static string RoamingRoot => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FreeVideoStudio");
 
     public static IEnumerable<UserUpgradeRoot> CurrentRoots()
     {
@@ -157,6 +157,68 @@ public static class MigrationPathResolver
             }
         }
         return changed;
+    }
+
+    /// <summary>
+    /// MEMEFOLDER_02 / NOSPACE_01 — records one folder move made by the app itself (not by the
+    /// installer), so saved projects and recovery files that name a file by its old full path keep
+    /// resolving. Idempotent: an identical mapping is not added twice. Never throws.
+    /// </summary>
+    public static void AppendMapping(string source, string destination)
+    {
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ApplicationPaths.ProgramDataRootOverrideEnvironmentVariable)))
+            return;
+        try
+        {
+            string path = Path.Combine(UserDataUpgrade.LocalRoot, UserDataUpgrade.PathMapFileName);
+            List<UpgradePathMapping> mappings = [];
+            if (File.Exists(path))
+            {
+                using var input = File.OpenRead(path);
+                mappings = JsonSerializer.Deserialize(input, UpgradeJsonContext.Default.ListUpgradePathMapping) ?? [];
+            }
+            if (mappings.Any(m => string.Equals(m.Source, source, StringComparison.OrdinalIgnoreCase) &&
+                                  string.Equals(m.Destination, destination, StringComparison.OrdinalIgnoreCase)))
+                return;
+            mappings.Add(new UpgradePathMapping(source, destination));
+            Directory.CreateDirectory(UserDataUpgrade.LocalRoot);
+            AtomicJsonFile.WriteText(path, JsonSerializer.Serialize(mappings, UpgradeJsonContext.Default.ListUpgradePathMapping));
+            _cachedMappings = null;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            CoreLogger.Warn("Upgrade", $"Could not record a migration path mapping: {ex.Message}");
+        }
+    }
+
+    private static IReadOnlyList<UpgradePathMapping>? _cachedMappings;
+
+    /// <summary>
+    /// MEMEFOLDER_02 — resolves ONE saved path through the recorded mappings, but only when the
+    /// saved path no longer exists. Used by the recovery restore paths, which read file paths
+    /// straight from JSON and drop any that are missing. Never throws.
+    /// </summary>
+    public static string ResolveSavedFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || File.Exists(path)) return path;
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ApplicationPaths.ProgramDataRootOverrideEnvironmentVariable)))
+            return path;
+        try
+        {
+            if (_cachedMappings == null)
+            {
+                string mapPath = Path.Combine(UserDataUpgrade.LocalRoot, UserDataUpgrade.PathMapFileName);
+                if (!File.Exists(mapPath)) return path;
+                using var input = File.OpenRead(mapPath);
+                _cachedMappings = JsonSerializer.Deserialize(input, UpgradeJsonContext.Default.ListUpgradePathMapping) ?? [];
+            }
+            return Resolve(path, _cachedMappings);
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            CoreLogger.Warn("Upgrade", $"Could not read migration path mappings: {ex.Message}");
+            return path;
+        }
     }
 
     public static JsonObject ResolveProject(JsonObject original)

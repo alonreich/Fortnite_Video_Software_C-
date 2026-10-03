@@ -50,12 +50,12 @@ def get_group_name(file_path: Path, project_root: Path) -> str:
         return "00_Specifications_and_Architecture"
 
     # 01: Core Media Pipeline, Timeline Math & Domain Models
-    if "fortnitevideosoftware.core" in rel_path and "tests" not in rel_path:
+    if "freevideostudio.core" in rel_path and "tests" not in rel_path:
         if ext == '.cs':
             return "01_Core_Logic"
 
     # 02: Desktop Application Code (ViewModels, Window code-behind, Controllers)
-    if "fortnitevideosoftware.app" in rel_path and "tests" not in rel_path:
+    if "freevideostudio.app" in rel_path and "tests" not in rel_path:
         if ext == '.cs':
             return "02_App_Code"
 
@@ -176,7 +176,7 @@ def generate_project_manifest(project_root: Path, groups: dict, total_files: int
 
 def run_aggregator():
     project_root = Path(__file__).resolve().parent.parent
-    download_dir = get_downloads_directory() / "fortnite_video_software"
+    download_dir = get_downloads_directory() / "free_video_studio"
 
     if not download_dir.exists():
         download_dir.mkdir(parents=True, exist_ok=True)

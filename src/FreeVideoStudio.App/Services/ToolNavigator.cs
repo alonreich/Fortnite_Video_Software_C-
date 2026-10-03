@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Forbidden to modify without reading: docs/08_APPLICATION_COMPOSITION.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -39,6 +45,10 @@ namespace FreeVideoStudio.App.Services;
 /// device, a libmpv IPC pipe and decoder threads; the Crop Tool and the Merger each start their
 /// own. Two live pipelines contending for the GPU is the most likely reason the original author
 /// reached for a process boundary in the first place, and nothing here re-introduces that.</item>
+/// <item><b>The handoff payload is still written through <see cref="StateTransferStore"/>.</b> The
+/// tool windows read their starting state from it on construction. Keeping that path means those
+/// windows need NO changes for this to work — the process boundary goes away, the data contract
+/// does not. Removing the IPC layer is a later, separate change with its own blast radius.</item>
 /// <item><b>The launch state now travels as a typed in-memory record (TOOLNAV_05).</b> This class
 /// used to serialise a <c>HandoffPayload</c> through <c>StateTransferStore</c> on
 /// every open — a named-pipe/disk round trip to pass data between two windows of ONE process,
@@ -162,6 +172,8 @@ public sealed class ToolNavigator
     /// closes.
     /// </summary>
     /// <param name="shutdownVideoPipeline">
+    /// Invoked BEFORE the tool window is constructed (TOOLNAV_02). Must release mpv and its D3D
+    /// device; the tool starts its own and the two must not overlap.
     /// Invoked and AWAITED BEFORE the tool window is constructed (TOOLNAV_02). Must release mpv
     /// and its D3D device; the tool starts its own and the two must not overlap. MPVSHUTDOWN_01:
     /// the contract is awaitable and reports failure — if the old preview cannot be PROVEN torn
@@ -191,6 +203,8 @@ public sealed class ToolNavigator
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(shutdownVideoPipeline);
 
+        // Re-entrancy: the button is clickable again for the frame between the click and the
+        // window appearing, and a double-click used to start two processes.
         if (_navigating || IsToolOpen) return false;
         _navigating = true;
 
@@ -199,6 +213,7 @@ public sealed class ToolNavigator
             string toolName = tool == Tool.CropTool ? "Crop Tools" : "Video Merger";
 
 
+            // TOOLNAV_02 (1) — release the GPU before the tool takes it.
             var shutdown = await shutdownVideoPipeline(System.Threading.CancellationToken.None);
             if (!shutdown.Succeeded)
             {
@@ -219,20 +234,24 @@ public sealed class ToolNavigator
             }
             catch (Exception ex)
             {
+                // The old path could not reach this case: a failed Process.Start left the user
+                // with a still-running app, but a tool that threw during construction took the
+                // whole thing down. Here the owner is still alive and still visible.
                 _faults.Fatal("UI", $"{toolName} could not be opened, so nothing has changed.", ex);
                 restoreVideoPipeline?.Invoke();
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 return false;
             }
 
             IsToolOpen = true;
-            OpenedInProcess = true;
+            OpenedInProcess = true;      // TOOLNAV_04
             RuntimeLog.Info("UI", $"Opening {toolName} in-process; main window hidden (TOOLNAV_01).");
 
+            // TOOLNAV_03 — hide, never close.
             toolWindow.Closed += (_, _) =>
             {
                 IsToolOpen = false;
-                OpenedInProcess = false;
+                OpenedInProcess = false;     // TOOLNAV_04
 
                 var result = (toolWindow as IToolNavigationResultSource)?.NavigationResult
                     ?? ToolNavigationResult.Cancelled(toolName);
@@ -252,6 +271,10 @@ public sealed class ToolNavigator
                 RuntimeLog.Info("UI", $"{toolName} closed; main window restored.");
             };
 
+            // The desktop lifetime's MainWindow decides what "the application's window" is for
+            // shutdown purposes. Point it at the tool while it owns the screen, so closing the
+            // tool with the owner hidden cannot terminate the process with the owner's document
+            // still in memory.
             PointLifetimeAt(toolWindow);
 
             toolWindow.Show();

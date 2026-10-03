@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=000000,FF0055,8A2BE2,000000&height=280&section=header&text=Fortnite%20Video%20Software&fontSize=65&fontAlignY=38&desc=GPU-Accelerated%20Gaming%20Montage%20Pipeline&descAlignY=58&descAlign=50&fontColor=ffffff&animation=fadeIn" width="100%" />
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=000000,FF0055,8A2BE2,000000&height=280&section=header&text=Free%20Video%20Studio&fontSize=65&fontAlignY=38&desc=GPU-Accelerated%20Gaming%20Montage%20Pipeline&descAlignY=58&descAlign=50&fontColor=ffffff&animation=fadeIn" width="100%" />
 
 <p align="center">
   <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET_9.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 9.0" /></a>
@@ -13,7 +13,7 @@
 <h3 align="center">⚡ High-Performance, Ultra-Specialized NLE Engineered for Automated Gaming Content Creation.</h3>
 
 <h2 align="center">
-  <a href="https://github.com/alonreich/Fortnite_Video_Software_C-/releases/latest/download/FreeVideoStudio.exe">⬇️ DOWNLOAD LATEST INSTALLER (.EXE) ⬇️</a>
+  <a href="https://github.com/alonreich/Free_Video_Studio/releases/latest/download/FreeVideoStudio.exe">⬇️ DOWNLOAD LATEST INSTALLER (.EXE) ⬇️</a>
 </h2>
 
 <p align="center">
@@ -101,8 +101,8 @@ To compile the application from source, you will need the **.NET 9 SDK** and the
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/alonreich/Fortnite_Video_Software_C-.git
-cd Fortnite_Video_Software_C-
+git clone https://github.com/alonreich/Free_Video_Studio.git
+cd Free_Video_Studio
 
 # 2. Run the automated build script
 .\build.cmd

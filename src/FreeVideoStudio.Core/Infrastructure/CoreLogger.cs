@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 
 namespace FreeVideoStudio.Core.Infrastructure;
@@ -85,10 +88,15 @@ public static class CoreLogger
         {
             string where = $"{System.IO.Path.GetFileName(file)}:{line} {member}()";
 
+            // ⚠️ Faults.Report has its own outermost guard and cannot throw, so this does not need
+            // a second one — but the try/catch around the whole body stays, because BUILDING the
+            // message touches ex.Message, and an exception whose Message property throws is rare,
+            // real, and must not take out the thread that was already handling a failure.
             Abstractions.Faults.Recoverable("SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}", ex);
         }
         catch (Exception)
         {
+            // Nothing left to escalate to.
         }
     }
 }

@@ -50,8 +50,10 @@ public sealed class TimelineLanesTests
 
         Rect rect = TimelineFilmstrip.SourceRect(chunk, pixels, sourceDuration);
 
+        // 10s / 100s * 1920 = 192
         Assert.Equal(192, rect.X);
         Assert.Equal(0, rect.Y);
+        // (20s - 10s) / 100s * 1920 = 192
         Assert.Equal(192, rect.Width);
         Assert.Equal(1080, rect.Height);
     }
@@ -73,6 +75,7 @@ public sealed class TimelineLanesTests
 
         Assert.True(rect.Width > 0);
         Assert.Equal(1080, rect.Height);
+        // x is 5/60 * 1920 = 160; Width is clamped to pixels.Width - x = 1920 - 160 = 1760
         Assert.Equal(1760, rect.Width);
     }
 

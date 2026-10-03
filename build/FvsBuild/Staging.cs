@@ -31,6 +31,8 @@ internal static class Staging
         "ffprobe.exe",
     ];
 
+    // Wildcard families: each must yield at least one DLL or the build fails loudly
+    // (a silent zero-file copy once shipped an installer with no codecs).
     private static readonly string[] BackendWildcards = ["av*.dll", "sw*.dll", "postproc*.dll"];
 
     private static readonly string[] FrontendExact = ["libmpv-2.dll", "mpv.exe"];
@@ -41,14 +43,19 @@ internal static class Staging
         "Cool Dance Background Music (No CopyRights).mp3",
     ];
 
-    private static readonly string[] StarterMp4 =
+    // STARTERLIST_01 / MEMEFOLDER_01 — the meme starter set, all from the single repo `meme\`
+    // folder. ⚠️ Must equal MemeAssets.StarterFiles["meme"] exactly (ArchitectureRuleTests
+    // .StarterListsMatchTheStagingLists). Every name here is required: a missing file halts staging.
+    private static readonly string[] StarterMeme =
     [
-        "What the fuck am I doing here (Robert Deniro).mp4",
+        "What the fuck am I doing here (Robert Deniro) - Landscape.mp4",
+        "What the fuck am I doing here (Robert Deniro) - Portrait.mp4",
         "Donald Trump - He Died like a Dog.mp4",
         "I will find you and I will kill you.mp4",
+        "Terminated.png",
+        "What The Fuck.jpg",
+        "oopsie.png",
     ];
-
-    private static readonly string[] StarterJpegWildcards = ["*.png", "*.jpg"];
 
     public static string CompiledExePath => Path.Combine(OutputDir, OutputExe);
     public static string StagingDirPath => StagingDir;
@@ -123,9 +130,12 @@ internal static class Staging
         }
         if (!ilcCrashed)
         {
-            return false;
+            return false;   // a real build error: report it as it is
         }
 
+        // ILCCRASH_01 — the compiler crashed, not the code. Re-run the SAME publish once with
+        // ILC's scanner single-threaded (--parallelism:1), which removes the race window. Slower,
+        // identical output. A second failure is reported as a failure.
         log.Warn("[NativeAOT] ILC (the NativeAOT compiler) crashed internally - known .NET 9 race, dotnet/runtime#108743.");
         log.Warn("[NativeAOT] Retrying this publish once with a single-threaded ILC scanner (slower, same output)...");
         return RunPublish(outputDir, buildVersion, log, singleThreadedIlc: true, out _);
@@ -210,7 +220,7 @@ internal static class Staging
 
         log.Info("[NativeAOT] 2.6 Copying starter media to staging...");
         string starterRoot = Path.Combine(StagingDir, "starter");
-        foreach (string folder in new[] { "mp3", "mp4", "jpeg" })
+        foreach (string folder in new[] { "mp3", "meme" })
         {
             Directory.CreateDirectory(Path.Combine(starterRoot, folder));
         }
@@ -221,23 +231,17 @@ internal static class Staging
                 missing.Add($@"mp3\{file}");
             }
         }
-        foreach (string file in StarterMp4)
+        foreach (string file in StarterMeme)
         {
-            if (!CopyTo($@".\mp4\{file}", Path.Combine(starterRoot, "mp4")))
+            if (!CopyTo($@".\meme\{file}", Path.Combine(starterRoot, "meme")))
             {
-                missing.Add($@"mp4\{file}");
-            }
-        }
-        foreach (string wildcard in StarterJpegWildcards)
-        {
-            foreach (string match in Directory.Exists(@".\jpeg") ? Directory.GetFiles(@".\jpeg", wildcard) : [])
-            {
-                CopyTo(match, Path.Combine(starterRoot, "jpeg"));
+                missing.Add($@"meme\{file}");
             }
         }
 
         if (missing.Count > 0)
         {
+            // Fail loudly rather than shipping an installer that silently seeds nothing.
             foreach (string file in missing)
             {
                 log.Error($"ERROR: staging input missing: {file}");
@@ -270,6 +274,19 @@ internal static class Staging
                 File.Delete(PayloadZip);
             }
             Directory.CreateDirectory(Path.GetDirectoryName(PayloadZip)!);
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // SYS-PAYLOADSPLIT — FINGERPRINT THE RUNTIME AND SHIP THE ANSWER.
+            //
+            // Written twice, on purpose:
+            //   • INTO the staging folder, so it lands beside the installed binaries and the
+            //     updater on that machine can read what is actually installed.
+            //   • BESIDE compiled\ (obj\ReleaseAssets, RELEASEASSETS_01), so the release can publish it as a tiny sidecar asset and the
+            //     updater can read what the release EXPECTS without downloading 322 MB to find out.
+            // A fingerprint that exists in only one of those two places answers nothing.
+            //
+            // ⚠️ Computed BEFORE the zip is written into the staging tree, so the manifest
+            // describes the runtime binaries and not itself.
+            // ══════════════════════════════════════════════════════════════════════════════════
             var manifest = FreeVideoStudio.Core.Infrastructure.RuntimePayloadManifest.FromFolder(StagingDir);
             manifest.Write(StagingDir);
             FreeVideoStudio.Core.Infrastructure.InstallPayload.WriteManifest(StagingDir);
@@ -283,6 +300,7 @@ internal static class Staging
                     entryCount++;
                 }
             }
+            // Entries cannot be read while the archive is open in Create mode; count them ourselves.
             log.Info($"[NativeAOT] Payload zipped: {entryCount} entries, {new FileInfo(PayloadZip).Length / (1024 * 1024)} MB.");
 
 
@@ -322,8 +340,12 @@ internal static class Staging
             if (File.Exists(updateArchive)) File.Delete(updateArchive);
             using (var update = ZipFile.Open(updateArchive, ZipArchiveMode.Create))
                 update.CreateEntryFromFile(executable, OutputExe, CompressionLevel.Optimal);
-            File.Copy(CompiledExePath, Path.Combine(ReleaseAssetsDir,
-                FreeVideoStudio.Core.Infrastructure.LegacyProductIdentity.DownloadName), overwrite: true);
+            // REBRAND_03 — the previous-brand download alias is NOT staged on disk any more.
+            // GitHubReleasePublisher creates it transiently at publish time and deletes it after upload.
+            // A copy left by an older FvsBuild is removed here.
+            string staleAlias = Path.Combine(ReleaseAssetsDir,
+                FreeVideoStudio.Core.Infrastructure.LegacyProductIdentity.DownloadName);
+            if (File.Exists(staleAlias)) File.Delete(staleAlias);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -409,6 +431,7 @@ internal static class Staging
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // A locked file here fails the publish or validation stage with a clearer message.
         }
     }
 

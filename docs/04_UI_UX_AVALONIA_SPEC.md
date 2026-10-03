@@ -13,8 +13,8 @@
 | src/FreeVideoStudio.App/Controls/ConfirmDialogWindow.axaml.cs | ConfirmDialogWindow | AskAsync, AskEditOrRemoveAsync, AskSaveChangesAsync, SetButtonText, UseDestructiveStyling | Destructive action confirmation dialog with loss itemization. |
 | src/FreeVideoStudio.App/Controls/SpinningWheelSlider.cs | SpinningWheelSlider | OnPointerWheelChanged, SetRange, SetLabels, BeginSettle, NearestDetent | Precision wheel slider for speed, quality, and fine numeric tuning. |
 | src/FreeVideoStudio.App/MainWindow.axaml.cs | MainWindow | AttachTitleBarDrag, BeginMoveDrag | Main window UI coordination, fluid container resizing, and borderless dragging. **⚠ CO-GOVERNED BY: 01, 02, GOV**|
-| src/FreeVideoStudio.App/CropToolWindow.Volume.cs | CropToolWindow (Partial) | WireUpVolumeSlider, ApplyCurrentVolumeToMpvAsync, OnGlobalMasterVolumeChangedInCrop | Master volume slider integration, video unmuting, and global sync in Crop Tools. **⚠ CO-GOVERNED BY: 02**|
-| src/FreeVideoStudio.App/VideoMergerWindow.VolumeSync.cs | VideoMergerWindow (Partial) | OnGlobalMasterVolumeChanged | Master volume slider sync across merger queue preview players. **⚠ CO-GOVERNED BY: 02**|
+| src/FreeVideoStudio.App/CropToolWindow.Volume.cs | CropToolWindow (Partial) | WireUpVolumeSlider, ApplyCurrentVolumeToMpvAsync | Master volume slider integration, video unmuting, and global sync in Crop Tools. **⚠ CO-GOVERNED BY: 02**|
+| src/FreeVideoStudio.App/VideoMergerWindow.VolumeSync.cs | VideoMergerWindow (Partial) | ApplyPreviewPlayersVolume | Master volume slider sync across merger queue preview players. **⚠ CO-GOVERNED BY: 02**|
 | src/FreeVideoStudio.App/GranularSpeedEditorWindow.axaml.cs | GranularSpeedEditorWindow | PushUndo, PerformUndo, PerformRedo, MaxUndoDepth = 40 | Granular Speed Editor 3-column layout and 40-deep immutable undo/redo engine. **⚠ CO-GOVERNED BY: 01, 05**|
 | src/FreeVideoStudio.App/GranularSpeedEditorWindow.AiZoom.cs | GranularSpeedEditorWindow (Partial) | OnAiSmartZoomClickedAsync, ExecuteAiTrackingAsync, CancelAiTracking, AiTrackingStatusLabelCtl, AiTrackingPreviewBarCtl | AI tracking dispatch, interactive subject wizard, thinking overlay, and instant loop preview bar. **⚠ CO-GOVERNED BY: 01**|
 | src/FreeVideoStudio.App/Controls/AiSubjectPickerWindow.axaml.cs | AiSubjectPickerWindow | SelectSubject, HoverSubject, ClearHover, OnFrameTabSelected | Multi-angle character picker wizard, 3-angle thumbnail selector tabs, and target selection grid. |
@@ -23,6 +23,7 @@
 | src/FreeVideoStudio.App/Controls/PhoneFrameMockup.axaml.cs | PhoneFrameMockup | PortraitImageControl, AppPortraitMaskBrush flanks, 600 · 720 · 600 columns | 9:16 phone frame mockup layout and flank dimming. **⚠ CO-GOVERNED BY: 01**|
 | src/FreeVideoStudio.App/WindowBoundsHelper.cs | WindowBoundsHelper | Track, ApplyBounds, SaveBoundsAsync, SaveBoundsSync, SaveSnapshot (700 ms debounce) | Multi-window bounds and screen placement persistence. **⚠ CO-GOVERNED BY: 05**|
 | src/FreeVideoStudio.App/Controls/WindowResizeGrip.cs | WindowResizeGrip | Attach, GripGeometry, TryInject, ResolveBrush | The one bottom-right resize affordance, shared by every window that has a grip (Crop Tools, Granular, Merger, Voice Over, Music Wizard, Finished dialog). |
+| src/FreeVideoStudio.App/Controls/SettingsWindow.Output.cs | SettingsWindow (Partial) | BuildOutputFilesUi, ApplyPendingOutputSettings, SyncMergerOutputDirectoryState, OUTNAME_01 | Output Files tab: per-tool save folder and automatic file name. |
 | src/FreeVideoStudio.App/Controls/SettingsWindow.axaml.cs | SettingsWindow | SelectTab, ShowAboutAsync, BuildAboutUi | Suite-wide preferences, About identity, hardware acceleration readout, and manual update checks. |
 | src/FreeVideoStudio.App/Controls/UpdateAvailableWindow.axaml.cs | UpdateAvailableWindow | AskAsync, SetVersions, UpdateChoice | Update suggestion modal: three buttons plus close, scrollable release notes, non-nagging choices. |
 | src/FreeVideoStudio.App/VideoMergerWindow.TimelineSelect.cs | VideoMergerWindow | AttachClipChip, IsOnSeekRows, SelectQueueRow, TimelineBlocks, ChipDragThresholdPx = 6 | Merger timeline selection ants, thumbnail-block select/drag reorder (ANTS_01, MERGERUX_01). **⚠ CO-GOVERNED BY: 01**|
@@ -36,8 +37,13 @@
 | src/FreeVideoStudio.Core/Media/WaveformPeaks.cs | WaveformPeaks | SampleRate = 4000, PeaksPerSecond = 40, MaxPeaks = 6000 | Vector waveform peaks for the Merger waveform lane (LANECACHE_02). |
 | src/FreeVideoStudio.App/PreviewDetachController.cs | PreviewDetachController | Attach, Detach, IsDetached | Multi-monitor video preview decoupling and full-screen window lifecycle. |
 | src/FreeVideoStudio.App/PreviewMonitorWindow.axaml.cs | PreviewMonitorWindow | AttachHost, ReleaseHost | Dedicated secondary monitor video preview window. |
-| src/FreeVideoStudio.App/Controls/MemePickerWindow.axaml.cs | MemePickerWindow | SelectMemeAsync, RefreshCatalog | Modal catalog picker for meme video/image insertions. |
-| src/FreeVideoStudio.App/Controls/MemeWallControl.axaml.cs | MemeWallControl | PopulateMemes, SelectedMeme | Interactive meme selection tile grid and search filter. |
+| src/FreeVideoStudio.App/Controls/MemePickerWindow.axaml.cs | MemePickerWindow, MemePickerRow | PickAsync, SetItems, LatestItems | Modal meme picker for ADD MEME: thumbnails, search, portrait warning, download buttons, live re-scan (MEMEPICK_01/02). |
+| src/FreeVideoStudio.App/ViewModels/MemeChoiceViewModel.cs | MemeChoiceViewModel | Mode, Corner, Size, PlaySound, FullScreenLengthText, ApplyTo, LoadFrom | MEMEMODE_01 — the popup's FULL SCREEN / CORNER OVERLAY cards, bound. **⚠ CO-GOVERNED BY: 01**|
+| src/FreeVideoStudio.App/Infrastructure/CornerMemeOverlayPresenter.cs | CornerMemeOverlayPresenter, CornerMemeFrames, CornerMemeSpan | Attach, SetSpans, Update, Hide, SplitPngStream | MEMEMODE_01 — corner memes previewed over the video host, same geometry as the export. **⚠ CO-GOVERNED BY: 03**|
+| src/FreeVideoStudio.App/GranularSpeedEditorWindow.Memes.cs | GranularSpeedEditorWindow (Partial) | AddMemeAsync, EditMemeAsync, DrawCornerMemeBands, UpdateEditorCornerMemes | MEMEMODE_01 — add/change memes, corner bands, corner preview. **⚠ CO-GOVERNED BY: 01, 07**|
+| src/FreeVideoStudio.App/MainWindow.CornerMemes.cs | MainWindow (Partial) | UpdateCornerMemeOverlay | MEMEMODE_01 — main preview corner memes. **⚠ CO-GOVERNED BY: 01**|
+| src/FreeVideoStudio.App/VideoMergerWindow.CornerMemes.cs | VideoMergerWindow (Partial) | UpdateMergerCornerMemes | MEMEMODE_01 — Merger preview corner memes. **⚠ CO-GOVERNED BY: 01**|
+| src/FreeVideoStudio.App/Infrastructure/MemeThumbnailCache.cs | MemeThumbnailCache | GetAsync, ThumbWidth = 160 | Bounded, cached meme preview pictures (image decode / one ffmpeg frame). |
 | src/FreeVideoStudio.App/ViewModels/MainViewModel.cs | MainViewModel | IsPortraitMode, IsVideoLoaded, PlaybackTimeText | Core application view model driving top-level UI states and tool bindings. |
 | src/FreeVideoStudio.App/ViewModels/ViewModelBase.cs | ViewModelBase | RaiseAndSetIfChanged, PropertyChanged | Base MVVM reactive observable notification implementation. |
 
@@ -110,8 +116,8 @@
 * **Text Wrapping Simulation:** Live preview clones backend FFmpeg wrap and scale algorithms. Text renders in the top-center of the video canvas to guarantee scale and wrap fidelity despite top void omission.
 * **Unified Master Fluid Volume Slider Rail:**
   * The vertical "test tube" fluid volume slider (`FluidVolumeSlider`) is embedded in all three core windows: `MainWindow.axaml` (right video rail), `VideoMergerWindow.axaml` (merger preview rail), and `CropToolWindow.axaml` (right video panel rail).
-  * All three instances are wired to `MpvIpcClient.GlobalMasterVolume` and synchronized via `MpvIpcClient.GlobalMasterVolumeChanged`.
-  * Re-entrancy guard (`_isSyncingMasterVolume`) prevents event feedback storms when syncing slider positions, tooltips, percentage text badges, and mute speaker icons.
+  * All three racks are wired by ONE helper, `Infrastructure.MasterVolumeUi.Bind` (VOLSHARED_01), to `MpvIpcClient.GlobalMasterVolume` + `GlobalMuted`, and repaint (slider, % badge or `MUTE`, speaker icon; dimmed slider while muted) on every change from any window, keyboard, mouse wheel (VOLWHEEL_01: 5%/notch, Shift 1%) or the Windows Volume Mixer (VOLSYNC_01). A per-binding re-entrancy guard prevents feedback storms.
+  * The speaker button is the SHARED mute (VOLMUTE_01), remembered across launches (`PreviewMuted`). Audio rules: `02_AUDIO_ENGINE_MASTERING.md` AUD-MASTERVOL.
   * Crop Tool video preview applies global master volume upon loading rather than force-muting.
 * **Audio Ingestion Prompts & Settings:**
   * The legacy "Video volume is too quiet or too loud" prompt is removed from both upload ingestion and Preferences/Settings.
@@ -319,12 +325,21 @@ Every window sets `ExtendClientAreaToDecorationsHint="True"`, so **the OS draws 
 * **Live Refresh:** The styling re-evaluates dynamically — toggling `PortraitModeCheckbox` restyles the open list immediately; it is not computed once at load.
 * **Intent:** It is a WARNING, not a block. The user may still pick the meme; they are told up front that a wide landscape clip will be heavily cropped or letterboxed on the 9:16 canvas, instead of discovering it after an export.
 * **Data Source:** Aspect ratios come from the boot probe described in `03_FFMPEG_EXPORT_PIPELINE.md` §10 (FFM-MEMELIB).
+* **Meme Picker (MEMEPICK_01/02):** ADD MEME in the Granular Speed Editor opens `MemePickerWindow`. It applies the SAME warning rule (portrait = the editor's portrait format), shows a preview picture per meme (`MemeThumbnailCache`: images decoded to 160 px wide, videos one ffmpeg frame piped as PNG, at most 3 at once, cached per path+size+mtime), filters by a name search, and carries `⬇ More videos` / `⬇ More pictures`. The list handed over is shown at once and re-scanned in the background; a download anywhere raises `MemeDirectory.Changed`, which re-scans too, and the newest list is handed back to the editor (`LatestItems`). The former Meme Wall (`MemeWallControl`, IDEA 008) was deleted: nothing ever made it visible (MEMEWALL_01).
+* **One Popup, Two Cards (MEMEMODE_01):** `MemePickerWindow` is ONE modal screen: choose the meme, then two obvious cards — **FULL SCREEN** "Interrupt the gameplay" / "Video becomes +X.X sec longer" (the chosen meme's length; a picture is 4.0 s, a video is probed off the UI thread) and **CORNER OVERLAY** "Keep gameplay running" / "Video length stays the same". Choosing the corner reveals four corner buttons, Small / Medium / Large and "Play meme sound". Defaults: Full Screen, Bottom Right, Medium, sound on. Bound to `MemeChoiceViewModel` (MVVM_01: no new `FindControl`). `PickAsync(…, existing:)` reopens the same screen for a placed meme (double-click its band in the Speed Editor) to change file, mode, corner, size or sound; every change is one undo step. Corner memes draw as a thin dashed strip at the top of the Speed Editor lane over the gameplay they cover (click selects, REMOVE MEME deletes). Previews (Main App, Speed Editor, Merger) draw them with `CornerMemeOverlayPresenter` — simultaneous, never pausing/seeking/swapping the player; their sound is heard in the rendered preview mix (PREVIEWMIX_01).
+* **Music During A Meme (MEMEMUSIC_01):** whether the music bed keeps playing under a meme (`KeepMusicDuringMeme`, `02` AUD-MUSICFADE) is asked with the themed `ConfirmDialogWindow` (DIALOG_01), not the Win32 box. Picking a meme asks only while the answer is unknown; finishing the Music Wizard with a meme selected asks again, since that is where the music is reconfigured.
 
 ---
 
 ## 11. Settings Window, About Tab & Universal Version Title Bar  {#UI-SETTINGS-ABOUT}
 * **Dedicated About Tab:** Application identity, versioning, system runtime metadata, and update controls reside inside a dedicated `About` tab in `SettingsWindow.axaml`. The updates checkbox is removed from Confirmation Dialogs to ensure cohesive information architecture.
 * **System & Hardware Status Readouts:** Displays .NET 9.0 NativeAOT runtime details, OS version, architecture, active video encoder hardware capability (e.g. `Auto (Hardware Acceleration Preferred)`), and the per-user storage root (`ApplicationPaths.ProgramDataRoot` = `%LOCALAPPDATA%\FreeVideoStudio`, USERSCOPE_01; `FVS_PROGRAMDATA_ROOT` overrides it).
+* **Output Files Tab (OUTNAME_01):** Per tool (Main App, Video Merger): the save folder (read-only
+  path box, `CHANGE FOLDER...` picker that accepts only writable folders, `USE DOWNLOADS` to clear it)
+  and the automatic file name (text box, `DEFAULT` reset, live preview `name-1.mp4, name-2.mp4,
+  name-3.mp4`). Values are pending until SAVE and are committed in the single SETTX_01 transaction;
+  a changed merger folder is also written to the IPC state store the merger reads on open
+  (`03` FFM-OUTNAME, ISSUE_04).
 * **Manual Update Trigger:** The `Check For Updates Now` button executes on-demand checking (`UpdateService.CheckManualAsync`), providing inline status feedback and bypassing the 24-hour startup probe throttle.
 * **Skipped Release Filter Management:** Displays skipped release tags with a `Clear Skip` action button allowing users to re-enable skipped update prompts without modifying raw files.
 * **Direct Navigation Routes:**

@@ -1,4 +1,7 @@
-﻿using Avalonia;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md, docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -9,6 +12,7 @@ namespace FreeVideoStudio.App.Controls;
 /// <summary>GRANULARPERF_01 — one drawing surface, regardless of the number of timeline chunks.</summary>
 public sealed class TimelineFilmstrip : Control
 {
+    // The owning window controls bitmap lifetime. A streamed frame only invalidates this visual.
     public Bitmap? Bitmap { get; set; }
     public OutputTimeline? Timeline { get; set; }
     public double SourceDurationSeconds { get; set; }
@@ -46,6 +50,7 @@ public sealed class TimelineFilmstrip : Control
                 double width = chunk.OutputLengthSec / timeline.TotalOutputSeconds * w;
                 output += chunk.OutputLengthSec;
                 if (width <= 0) continue;
+                // Draw only the source slice that is visible. No oversized Image layout boxes or textures.
                 context.DrawImage(bitmap, SourceRect(chunk, bitmap.PixelSize, SourceDurationSeconds),
                     new Rect(x, 0, width, h));
             }

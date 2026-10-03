@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -28,7 +34,7 @@ namespace FreeVideoStudio.App;
 public partial class VideoMergerWindow
 {
     private int _playClip = -1;
-    private string? _playPath;
+    private string? _playPath;   // the file under the playhead (kept for ApplyTimeline's remap)
     private int _clipLoadGraceTicks;
     private double _lastMergedPos;
     private bool _mergedEndReached;
@@ -36,7 +42,7 @@ public partial class VideoMergerWindow
     private bool _draggingThumbMarker;
     private string? _mergedDrawKey;
 
-    private const int SeekGraceTicks = 3;
+    private const int SeekGraceTicks = 3;   // 3 x 100 ms
 
     private bool MergedMode => _videoHost?.IpcClient != null && TimelineMatchesQueue();
 
@@ -61,15 +67,18 @@ public partial class VideoMergerWindow
     {
         var ipc = _videoHost?.IpcClient;
         if (ipc == null || _timeline.Clips.Count == 0) return;
+        // MEME_07 — mpv holds the meme file for a few seconds: a seek now would move the MEME. Ignored.
         if (_memePreview?.IsActive == true) return;
         double t = Math.Clamp(mergedSec, 0, _timeline.TotalSec);
         _lastMergedPos = t;
         _mergedEndReached = false;
-        RearmPreviewEffects(t);
+        RearmPreviewEffects(t);   // MERGEPREVIEW_01 — a seek is a new pass
         if (!EnsureEdlLoaded(t, play))
         {
             _ = SeekInternal(t);
             if (play is bool p) _ = ipc.SetPropertyAsync("pause", p ? "no" : "yes");
+            // P10 (R-b) — mpv reports the OLD position for a tick or two after a seek; hold the target
+            // meanwhile, or the playhead (and with it the selected row) snaps back to the old clip.
             _edlLoadTarget = t;
             _clipLoadGraceTicks = SeekGraceTicks;
         }
@@ -79,10 +88,11 @@ public partial class VideoMergerWindow
     /// <summary>AUTOPREVIEW_01 in merged mode: highlighting a clip plays it from its middle.</summary>
     private bool StartMergedPreview(string path)
     {
-        if (_syncingSelection) return true;
-        if (_selectWithoutPreview) return MergedMode;
+        if (_syncingSelection) return true;   // the selection is following playback, not the user
+        if (_selectWithoutPreview) return MergedMode;   // D23 — a block click / a reorder selects without seeking
         if (!MergedMode)
         {
+            // The legacy per-file preview is about to load a single file: the EDL is no longer in mpv.
             ForgetLoadedEdl();
             return false;
         }
@@ -98,7 +108,7 @@ public partial class VideoMergerWindow
     {
         var ipc = _videoHost?.IpcClient;
         if (ipc == null || idx < 0 || idx >= _timeline.Clips.Count) return;
-        _pendingMiddleSeekPath = null;
+        _pendingMiddleSeekPath = null;   // legacy per-clip machinery stands down
         _autoAdvanceArmed = false;
         _ = ipc.SetPropertyAsync("mute", _previewMuted ? "yes" : "no");
         SeekMerged(_timeline.ToMerged(idx, src), play);
@@ -121,6 +131,7 @@ public partial class VideoMergerWindow
     private void SyncListSelection(int idx)
     {
         var list = VideoListCtl;
+        // A multi-row selection (the user is about to remove or move several clips) is left alone.
         if (list == null || list.SelectedIndex == idx || (list.SelectedItems?.Count ?? 0) > 1) return;
         _syncingSelection = true;
         try { list.SelectedIndex = idx; list.ScrollIntoView(idx); }
@@ -134,6 +145,7 @@ public partial class VideoMergerWindow
         {
             if (_mergedDrawKey != null)
             {
+                // Leaving merged mode (queue changed, re-analysis pending): drop the stale dividers.
                 MarkersCanvasCtl?.Children.Clear();
                 _mergedDrawKey = null;
                 _isTimelineDrawn = false;
@@ -144,16 +156,22 @@ public partial class VideoMergerWindow
 
         EnsurePreviewPlan();
 
+        // MERGEPREVIEW_01 (P8.2) / MEME_07 — while a meme is on screen mpv's clock is the MEME's:
+        // nothing below may read it, and the EDL must not be reloaded under it. The caret holds.
         if (TickMergerMemes()) return true;
 
+        // MERGEPREVIEW_EDL_01 — the layout changed (reorder, remove, scraper, thumbnail): reload the
+        // one EDL at the same moment of the same clip. First entry into merged mode loads it too.
         EnsureEdlLoaded(null, null);
 
+        // Play pressed after the merge ended: start again from the top, like any player.
         if (_mergedEndReached && !ipc.IsPaused && _timeline.Clips.Count > 0)
             SeekMerged(0, play: true);
 
         double total = _timeline.TotalSec;
         double merged = EdlPositionSec(ipc);
 
+        // MERGEPREVIEW_01 (P8.1) — speed per stretch, cut skips, freeze holds; the export's schedule.
         bool holding = TickPreviewEffects(ipc, ref merged);
 
         if (!holding && _clipLoadGraceTicks == 0 && !_mergedEndReached
@@ -191,7 +209,7 @@ public partial class VideoMergerWindow
         }
 
         var markers = MarkersCanvasCtl;
-        if (markers != null && !_draggingThumbMarker && !_draggingClipChip && !_chipPressed)
+        if (markers != null && !_draggingThumbMarker && !_draggingClipChip && !_chipPressed)   // ANTS_01 — never rebuild under a pressed block
             DrawMergedTimeline(markers, this.FindControl<Canvas>("TimelineScaleCanvas"));
 
         UpdateMergerThumbnailButton();
@@ -199,6 +217,7 @@ public partial class VideoMergerWindow
         return true;
     }
 
+    // ── Drawing ─────────────────────────────────────────────────────────────────────────────
 
     private void DrawMergedTimeline(Canvas markers, Canvas? scale)
     {
@@ -213,11 +232,11 @@ public partial class VideoMergerWindow
         if (key == _mergedDrawKey) return;
         _mergedDrawKey = key;
         _isTimelineDrawn = true;
-        ScheduleLaneRefresh();
+        ScheduleLaneRefresh();   // LANES_01 — layout or width changed: replan the filmstrip/waveform
 
         DrawTimelineScale(scale, w, total);
         markers.Children.Clear();
-        DrawTimelineGrid(markers, w, h, total);
+        DrawTimelineGrid(markers, w, h, total);   // P10 (item 6) — the Main App's grid lines
 
         IBrush divider = Infrastructure.ThemeResources.Brush(markers, "AppInfoBrush", Brushes.DeepSkyBlue);
         IBrush labelBg = new SolidColorBrush(Color.FromArgb(170, 15, 23, 42));
@@ -241,6 +260,8 @@ public partial class VideoMergerWindow
             string name = System.IO.Path.GetFileNameWithoutExtension(c.Path);
             string text = (c.RemovedIntroSec > 0 ? "✂ " : "") + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)
                           + (room > 110 ? " · " + name : "");
+            // P10 (item 5, D23) — the label is centred over its clip and is NOT a handle: the upper
+            // timeline only seeks; clips are moved on the thumbnail blocks.
             var label = new Border
             {
                 Width = Math.Max(14, room - 6),
@@ -266,7 +287,7 @@ public partial class VideoMergerWindow
             markers.Children.Add(label);
         }
 
-        DrawTimelineSelection(markers, w, h, total);
+        DrawTimelineSelection(markers, w, h, total);   // ANTS_01 — marching ants on the selected block(s)
 
         if (music != null)
         {
@@ -340,16 +361,19 @@ public partial class VideoMergerWindow
             scaleCanvas.Children.Add(tb);
         }
 
+        // P10 (item 6) — both ends are labelled too (0:00 and the merge's length), like the Main App's
+        // start/end labels, so the axis always reads as a clock.
         Add(Label(0), 0);
         for (double t = tickInterval; t < duration - 0.001; t += tickInterval)
         {
             double tx = (t / duration) * canvasWidth;
-            if (tx < 30 || canvasWidth - tx < 40) continue;
+            if (tx < 30 || canvasWidth - tx < 40) continue;   // never collide with the end labels
             Add(Label(t), tx + 2);
         }
         Add(Label(duration), canvasWidth - 36);
     }
 
+    // ── SCRAPER_04 — thumbnail marker (the Main App's camera icon and gestures) ─────────────
 
     private void AttachMergerThumbnailMarker(Control marker, Canvas canvas)
     {
@@ -366,6 +390,7 @@ public partial class VideoMergerWindow
         marker.PointerMoved += (_, e) =>
         {
             if (!_draggingThumbMarker) return;
+            // THUMB_02 — no button held means the drag is over, whatever the flag says.
             if (!e.GetCurrentPoint(marker).Properties.IsLeftButtonPressed) { EndThumbMarkerDrag(marker); return; }
             MoveThumbMarker(e.GetPosition(canvas).X, canvas, marker);
             e.Handled = true;
@@ -391,6 +416,7 @@ public partial class VideoMergerWindow
         SetThumbnailAtMerged(merged, announce: false);
         Canvas.SetLeft(marker, MainWindow.ClampTimelineCameraLeft(cx, w));
 
+        // THUMB_01 — dragging scrubs the picture, paused, so the cover is chosen by sight.
         _ = _videoHost?.IpcClient?.SetPropertyAsync("pause", "yes");
         SeekMerged(merged, play: false);
     }
@@ -398,7 +424,7 @@ public partial class VideoMergerWindow
     private void EndThumbMarkerDrag(Control marker)
     {
         _draggingThumbMarker = false;
-        EndHistoryGesture();
+        EndHistoryGesture();   // MERGEUNDO_01 — the next drag is its own undo step
         MainWindow.SetTimelineCameraHover(marker, false);
         InvalidateMergedTimelineDrawing();
         RuntimeLog.Info("MERGER", $"Custom thumbnail moved to {_thumbSourceSec:F3}s of {System.IO.Path.GetFileName(_thumbPath ?? "")}.");
@@ -432,6 +458,7 @@ public partial class VideoMergerWindow
         }
 
         if (txt != null && txt.Text != label) txt.Text = label;
+        // P10 (item 2) — the Main App's exact class logic (MainWindow.UpdateThumbnailButtonState).
         if (destructive)
         {
             btn.Classes.Remove("Primary");

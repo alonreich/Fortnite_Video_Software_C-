@@ -1,9 +1,16 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Forbidden to modify without reading: docs/07_UNDO_AND_HISTORY.md
+// Forbidden to modify without reading: docs/08_APPLICATION_COMPOSITION.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using FreeVideoStudio.App.Abstractions;
-using FreeVideoStudio.App.Controls;
+using FreeVideoStudio.App.Controls;   // NoticeKind
 using FreeVideoStudio.App.ViewModels;
 using FreeVideoStudio.Core.Abstractions;
 using FreeVideoStudio.Core.Media;
@@ -156,10 +163,19 @@ public sealed class ProjectSession
         _probeVideoMetrics = probeVideoMetrics ?? throw new ArgumentNullException(nameof(probeVideoMetrics));
         _hasUnsavedWork = hasUnsavedWork ?? throw new ArgumentNullException(nameof(hasUnsavedWork));
 
+        // PROJ_11 — these two default to "nothing to record" rather than being required, so the
+        // existing call sites and every test keep compiling. ⚠️ A default that returns null is
+        // honest here in a way it would not be elsewhere: it means "this session has no mask/merge
+        // source wired", which is exactly true of a headless session.
         _readLiveMask = readLiveMask ?? (static () => null);
+        // EDITHOT_01 — the non-blocking reader used on every edit tick. It falls back to the
+        // synchronous one when a caller (tests) supplies only that.
         _readLiveMaskFast = readLiveMaskFast ?? _readLiveMask;
         _readMergeQueue = readMergeQueue ?? (static () => null);
 
+        // UNDO_24 — defaults to the real store under ProgramData. A test that wants no disk passes
+        // its own rooted at a temp folder; there is no "null means disabled" mode, because a
+        // silently-disabled history is the defect this closes.
         _sidecar = sidecar ?? UndoSidecarStore.CreateDefault(Core.Infrastructure.ApplicationPaths.CreateDefault());
 
         _lastAutosaveUtc = _clock.UtcNow;
@@ -198,6 +214,7 @@ public sealed class ProjectSession
     /// </summary>
     public event EventHandler<ProjectDocument>? DocumentApplied;
 
+    // ── History (#5) ────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Starts a history for the clip that was just loaded. Called once per video load. Discards any
@@ -261,6 +278,7 @@ public sealed class ProjectSession
         _notifier.Notify($"Redid: {_history.NextUndoLabel ?? "last change"}", NoticeKind.Info);
     }
 
+    // ── Save / Open (#1) ────────────────────────────────────────────────────────────────────
 
     /// <summary>Ctrl+S. Falls through to Save As when the project has never been written.</summary>
     public async Task<bool> SaveAsync()
@@ -287,7 +305,7 @@ public sealed class ProjectSession
             Extension: "fvsproj",
             StartDirectoryKey: "last_project_dir.txt"));
 
-        if (chosen is null) return false;
+        if (chosen is null) return false;   // user cancelled; not a failure, nothing to report
 
         return WriteTo(_store.NormalizeExtension(chosen), announce: true);
     }
@@ -319,6 +337,8 @@ public sealed class ProjectSession
             return false;
         }
 
+        // PROJ_09 — a silent fall back to .bak hands the user an OLDER version of their own work
+        // and lets them keep editing it believing it is current. It must be said out loud.
         if (fromBackup)
         {
             _notifier.Notify(
@@ -351,6 +371,11 @@ public sealed class ProjectSession
         _history = new UndoStack<ProjectDocument>(document);
         _history.Changed += (_, _) => Raise();
 
+        // UNDO_24 — take back the history this project had when it was last closed.
+        //
+        // ⚠️ ORDERED AFTER the stack is constructed, because Restore replaces the BRANCHES and
+        // leaves Current alone — Current must already be the document that was just applied to the
+        // view-models, or the first Ctrl+Z would restore a state the screen does not show.
         UndoSidecar? history = _sidecar.Load(chosen, HistoryFingerprint(document));
         if (history is not null)
         {
@@ -376,7 +401,7 @@ public sealed class ProjectSession
         if ((_clock.UtcNow - _lastAutosaveUtc).TotalSeconds < AutosaveIntervalSeconds) return;
 
         _lastAutosaveUtc = _clock.UtcNow;
-        WriteTo(CurrentPath!, announce: false, explicitSave: false);
+        WriteTo(CurrentPath!, announce: false, explicitSave: false);   // EDITHOT_01 — autosave is not a click.
     }
 
     /// <summary>
@@ -439,6 +464,22 @@ public sealed class ProjectSession
     /// </summary>
     public async Task<bool> ConfirmDiscardAsync(string action)
     {
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_09 — THIS GUARD MUST NEVER TRAP THE USER IN THEIR OWN APPLICATION.
+        //
+        // It runs from MainWindow.OnClosing, BEFORE the try block that owns the rest of the
+        // teardown, and OnClosing is `async void`. Anything that throws in here therefore escapes
+        // to AppDomain.UnhandledException, the close is already cancelled, _isSafeToClose is never
+        // set, and Close() is never re-posted — the window stays open and the next click on X
+        // does exactly the same thing. That is an unclosable application, and it is what shipped:
+        // showing a file picker on a window that is mid-close can throw, and every throw landed
+        // in that hole.
+        //
+        // So: the whole body is guarded, and the failure direction is deliberate. A broken dialog
+        // or a failed picker lets the close PROCEED rather than blocking it. Losing an unsaved
+        // .fvsproj is bad; an application that cannot be closed without Task Manager is worse, and
+        // the crash-recovery snapshot (05 §4 SYS-RECOVERY) still holds the session either way.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         try
         {
             if (!IsDirty) return true;
@@ -449,10 +490,19 @@ public sealed class ProjectSession
                 "Save first",
                 "Discard changes");
 
+            // ConfirmDialogWindow.AskAsync returns false for decline AND for a dialog that could
+            // not be shown at all. Both mean "do not save", and neither may block the exit.
             if (!save) return true;
 
+            // ⚠️ NOT SaveAsync(). On the close path a never-saved project would fall through to
+            // SaveAsAsync and open a FILE PICKER on a window that is already mid-close. The picker
+            // does not come up, returns null, the guard reports "not saved" and refuses the close
+            // — and the next click on X does exactly the same. The user pressed Save and the
+            // application would not shut down. SaveForExitAsync never shows a dialog.
             if (await SaveForExitAsync()) return true;
 
+            // The write itself failed and has already reported as Fatal. Let the close proceed:
+            // the user has been told, and holding the window open cannot un-fail the write.
             return true;
         }
         catch (Exception ex)
@@ -460,7 +510,7 @@ public sealed class ProjectSession
             _faults.Recoverable("PROJECT",
             $"The unsaved-changes prompt failed during '{action}'; allowing it to proceed rather than "
             + $"blocking the window. {ex.GetType().Name}: {ex.Message}", ex);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return true;
         }
     }
@@ -488,6 +538,8 @@ public sealed class ProjectSession
         string? video = _viewModel.LoadedVideoPath;
         if (string.IsNullOrWhiteSpace(video))
         {
+            // Nothing to derive a name from. IsDirty should already be false in this case
+            // (HasUnsavedWork returns false with no clip loaded), so this is belt and braces.
             return Task.FromResult(true);
         }
 
@@ -521,11 +573,12 @@ public sealed class ProjectSession
         catch (Exception ex)
         {
             _faults.Recoverable("PROJECT", $"HasUnsavedWork check failed, assuming nothing to save: {ex.Message}", ex);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
 
+    // ── Document <-> view-model ─────────────────────────────────────────────────────────────
 
     /// <summary>PROJSESSION_02 — projects the live view-model state into an immutable document.</summary>
     public ProjectDocument Capture() => Capture(forExplicitSave: false);
@@ -576,6 +629,9 @@ public sealed class ProjectSession
                 PortraitMode = _viewModel.IsPortraitMode,
                 HardwareMode = "Auto",
             },
+            // PROJ_11 — the mask and the merge queue are part of the work, not of the machine.
+            // Captured on every edit boundary so an undo step restores the mask the user had, not
+            // whatever the shared profile file says at the moment they press Ctrl+Z.
             Mask = forExplicitSave ? ReadLiveMaskSafely() : ReadLiveMaskFastSafely(),
             Merge = ReadMergeQueueSafely(),
             Title = string.IsNullOrWhiteSpace(path) ? "Untitled" : Path.GetFileNameWithoutExtension(path),
@@ -636,6 +692,7 @@ public sealed class ProjectSession
             _applying = false;
         }
 
+        // PROJ_11 — OUTSIDE the _applying guard on purpose: this reports, it does not edit.
         ReportMaskDriftIfAny(document);
 
         _dirty = true;
@@ -673,8 +730,10 @@ public sealed class ProjectSession
     {
         if (document.Mask is not { } saved) return;
 
-        ProjectMask? live = ReadLiveMaskFastSafely();
+        ProjectMask? live = ReadLiveMaskFastSafely();   // EDITHOT_01 — runs on every undo/redo.
 
+        // No live mask to compare against is not drift — it is a session with no mask source
+        // wired, which is the normal state in a test and during early startup.
         if (live is null) return;
 
         if (saved.MatchesLive(live.Config)) return;
@@ -692,6 +751,7 @@ public sealed class ProjectSession
             technicalDetail: $"saved fingerprint {saved.Fingerprint}, live {live.Fingerprint}");
     }
 
+    // ── Plumbing ────────────────────────────────────────────────────────────────────────────
 
     private SourceClip ProbeSourceCached(string path, double durationMs, int width, int height, double fps, bool refresh)
     {
@@ -728,6 +788,7 @@ public sealed class ProjectSession
 
         if (!result.Success)
         {
+            // Fatal, not degraded: the user believes their work is on disk and it is not.
             _faults.Fatal("PROJECT",
                 "Your project could not be saved, so nothing was written." + Environment.NewLine +
                 Environment.NewLine + (result.Error ?? "The file could not be written."));
@@ -738,6 +799,9 @@ public sealed class ProjectSession
         _dirty = false;
         _lastAutosaveUtc = _clock.UtcNow;
 
+        // UNDO_24 — the history is written WITH the save, and fingerprinted against what was just
+        // written. Saving is the moment the two are known to agree; writing the sidecar at any
+        // other time risks a history that describes a document the file does not contain.
         if (_history is { } history)
             _sidecar.Save(path, HistoryFingerprint(history.Current), history);
 

@@ -1,4 +1,4 @@
-# ══════════════════════════════════════════════════════════════════════════════════════════════
+﻿# ══════════════════════════════════════════════════════════════════════════════════════════════
 # FIX SENTINELS — THE LIST OF FIXES THAT MUST STILL BE IN THE SOURCE.
 #
 # SYS-DEVBUILD / VERIFYHALT_01. Each entry names a comment tag that sits next to a specific fix and
@@ -418,9 +418,14 @@ MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.Effects.cs
 MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
 MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.Session.cs
 MERGESIZE_01=src/FreeVideoStudio.App/VideoMergerWindow.Scraper.cs
-MEMELEVEL_01=src/FreeVideoStudio.Core/Media/MemeLoudness.cs
-MEMELEVEL_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
-MEMELEVEL_01=src/FreeVideoStudio.Core/Media/MergeClipGraph.cs
+# RETIRED MEMELEVEL_01 — superseded by MEMELEVEL_02 (2026-10-02 audio audit).
+#   MEMELEVEL_01 pinned every meme to a fixed -14 LUFS. With the gameplay deliberately left at its
+#   recorded level (LOUDSTD_REMOVED_01) that made memes 6-11 dB louder than the video they cut into.
+#   Memes are now matched to the measured gameplay instead; see MEMELEVEL_02 below.
+MEMELEVEL_02=src/FreeVideoStudio.Core/Media/MemeLoudness.cs
+MEMELEVEL_02=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+MEMELEVEL_02=src/FreeVideoStudio.Core/Media/MergeClipGraph.cs
+MEMELEVEL_02=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
 CLIPFRAMES_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
 MUSICPAD_01=src/FreeVideoStudio.Core/Media/MusicPadAlignment.cs
 MUSICPAD_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
@@ -450,3 +455,101 @@ MERGERPLAYHEAD_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml
 MERGERPLAYHEAD_01=src/FreeVideoStudio.App/AvaloniaApp.axaml
 
 REBRAND_01=src/FreeVideoStudio.Core/Infrastructure/AppDataPaths.cs
+REBRAND_02=src/FreeVideoStudio.Core/Infrastructure/LegacyResidueSweep.cs
+REBRAND_02=src/FreeVideoStudio.App/Program.cs
+REBRAND_02=src/FreeVideoStudio.App/DeploymentFootprint.cs
+REBRAND_03=build/FvsBuild/GitHubReleasePublisher.cs
+REBRAND_03=build/FvsBuild/Staging.cs
+OUTNAME_01=src/FreeVideoStudio.Core/Media/OutputFileNaming.cs
+OUTNAME_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+OUTNAME_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+OUTNAME_01=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+OUTNAME_01=src/FreeVideoStudio.App/Controls/SettingsWindow.Output.cs
+OUTNAME_01=src/FreeVideoStudio.App/Controls/SettingsWindow.axaml
+# Meme library consolidation (mp4\ + jpeg\ -> meme\), space-free folder names, ADD MEME review.
+MEMEFOLDER_01=src/FreeVideoStudio.App/MemeCatalog.cs
+MEMEFOLDER_01=src/FreeVideoStudio.App/Infrastructure/MemeAssets.cs
+MEMEFOLDER_01=build/FvsBuild/Staging.cs
+MEMEFOLDER_02=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+MEMEFOLDER_02=src/FreeVideoStudio.Core/Infrastructure/UserDataUpgrade.cs
+MEMEFOLDER_02=src/FreeVideoStudio.App/MainWindow.Restore.cs
+STARTERLIST_01=src/FreeVideoStudio.App/Infrastructure/MemeAssets.cs
+STARTERLIST_01=build/FvsBuild/Staging.cs
+MEMECAT_01=src/FreeVideoStudio.App/MemeCatalog.cs
+MEMESYNC_01=src/FreeVideoStudio.App/MemeCatalog.cs
+MEMESYNC_02=src/FreeVideoStudio.App/MemeCatalog.cs
+MEMESYNC_03=src/FreeVideoStudio.App/MemeCatalog.cs
+MEMEPICK_01=src/FreeVideoStudio.App/Controls/MemePickerWindow.axaml.cs
+MEMEPICK_02=src/FreeVideoStudio.App/Controls/MemePickerWindow.axaml.cs
+MEMEMUSIC_01=src/FreeVideoStudio.App/MainWindow.Wireup.cs
+MEMEWALL_01=src/FreeVideoStudio.App/MainWindow.axaml
+NOSPACE_01=src/FreeVideoStudio.App/DeploymentFootprint.cs
+NOSPACE_01=src/FreeVideoStudio.App/Services/InstallDiscovery.cs
+NOSPACE_01=src/FreeVideoStudio.App/Services/UpgradeInstallWorker.cs
+NOSPACE_01=src/FreeVideoStudio.App/Services/UpgradeCoordinator.cs
+NOSPACE_01=src/FreeVideoStudio.App/Services/UpgradeRegistration.cs
+
+# ── 2026-10-02 AUDIO AUDIT (docs/02_AUDIO_ENGINE_MASTERING.md) ──
+LOUDSTD_REMOVED_01=src/FreeVideoStudio.Core/Media/AudioLoudnessProbe.cs
+LOUDSTD_REMOVED_01=src/FreeVideoStudio.App/MainWindow.axaml.cs
+LOUDSTD_REMOVED_01=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+LOUDSTD_REMOVED_01=src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs
+LOUDSTD_REMOVED_01=src/FreeVideoStudio.App/VoiceOverWindow.axaml.cs
+PEAKSAFE_01=src/FreeVideoStudio.Core/Media/PeakSafety.cs
+PEAKSAFE_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+PEAKSAFE_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+PEAKSAFE_01=src/FreeVideoStudio.App/MainWindow.PreviewMix.cs
+DUCKMB_01=src/FreeVideoStudio.Core/Media/AudioFilterChain.cs
+DUCKMB_01=src/FreeVideoStudio.Core/Media/FilterGraphBuilder.cs
+DUCKMB_01=src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs
+VOGATE_01=src/FreeVideoStudio.Core/Media/AudioFilterChain.cs
+VOGATE_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+VOPRIO_01=src/FreeVideoStudio.Core/Media/AudioFilterChain.cs
+VOPRIO_01=src/FreeVideoStudio.App/MainWindow.PreviewMix.cs
+SPLICE_03=src/FreeVideoStudio.Core/Media/MemeLoudness.cs
+SPLICE_03=src/FreeVideoStudio.Core/Media/MergeClipGraph.cs
+SPLICE_03=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+SPLICE_03=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+CLIPLEVEL_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+CLIPLEVEL_01=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+CLIPLEVEL_01=src/FreeVideoStudio.App/Controls/SettingsWindow.axaml
+VOLCURVE_01=src/FreeVideoStudio.Core/Media/MpvIpcClient.cs
+VOLCURVE_01=src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs
+VOLMUTE_01=src/FreeVideoStudio.Core/Media/MpvIpcClient.cs
+VOLMUTE_01=src/FreeVideoStudio.App/Infrastructure/MasterVolumeUi.cs
+VOLMUTE_01=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+VOLSHARED_01=src/FreeVideoStudio.App/Infrastructure/MasterVolumeUi.cs
+VOLSHARED_01=src/FreeVideoStudio.App/MainWindow.Wireup.cs
+VOLSHARED_01=src/FreeVideoStudio.App/CropToolWindow.Volume.cs
+VOLSHARED_01=src/FreeVideoStudio.App/VideoMergerWindow.axaml.cs
+VOLSYNC_01=src/FreeVideoStudio.App/Infrastructure/WindowsAudioSessionSync.cs
+VOLSYNC_01=src/FreeVideoStudio.Core/Media/MpvIpcClient.cs
+VOLWHEEL_01=src/FreeVideoStudio.App/Controls/FluidVolumeSlider.cs
+UISND_01=src/FreeVideoStudio.App/UiSoundEffect.cs
+PREVIEWMIX_01=src/FreeVideoStudio.Core/Media/AudioGraphPruner.cs
+PREVIEWMIX_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+PREVIEWMIX_01=src/FreeVideoStudio.App/MainWindow.PreviewMix.cs
+PREVIEWMIX_01=src/FreeVideoStudio.App/Services/MainMediaController.cs
+VOPREVIEW_01=src/FreeVideoStudio.App/MainWindow.PreviewMix.cs
+VOPREVIEW_01=src/FreeVideoStudio.App/MainWindow.PreviewAudio.cs
+DUCKSTRENGTH_01=src/FreeVideoStudio.Core/Media/FilterGraphBuilder.cs
+DUCKSTRENGTH_01=src/FreeVideoStudio.Core/Media/AudioFilterChain.cs
+DUCKSTRENGTH_01=src/FreeVideoStudio.App/ViewModels/MixProtectionViewModel.cs
+DUCKSTRENGTH_01=src/FreeVideoStudio.App/Controls/SettingsWindow.axaml
+DUCKSTRENGTH_01=src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs
+DUCKSTRENGTH_01=src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs
+DUCKSTRENGTH_01=src/FreeVideoStudio.App/MainWindow.Export.cs
+# TEMPO_01 — 03 FFM-TEMPO: one audio tempo builder for every export route (Rubber Band below 1.0x when verified).
+TEMPO_01=src/FreeVideoStudio.Core/Media/AudioTempoFilterBuilder.cs
+TEMPO_01=src/FreeVideoStudio.Core/Media/GranularSpeedBuilder.cs
+TEMPO_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+TEMPO_01=src/FreeVideoStudio.Core/Media/MergerWorker.cs
+# MEMEMODE_01 — 01 TL-MEME / 03 FFM-MEMECORNER: dual-mode memes (full screen = insertion, corner overlay = zero duration).
+MEMEMODE_01=src/FreeVideoStudio.Core/Media/MemePlacement.cs
+MEMEMODE_01=src/FreeVideoStudio.Core/Media/ProcessWorker.cs
+MEMEMODE_01=src/FreeVideoStudio.Core/Media/MergeClipGraph.cs
+MEMEMODE_01=src/FreeVideoStudio.Core/Media/CompositeTimeline.cs
+MEMEMODE_01=src/FreeVideoStudio.Core/Media/MergeEdl.cs
+MEMEMODE_01=src/FreeVideoStudio.Core/Project/ProjectSerializer.cs
+MEMEMODE_01=src/FreeVideoStudio.App/Infrastructure/MemePreviewDirector.cs
+MEMEMODE_01=src/FreeVideoStudio.App/Controls/MemePickerWindow.axaml

@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
         xmlns:local="clr-namespace:FreeVideoStudio.App"
         xmlns:controls="clr-namespace:FreeVideoStudio.App.Controls"
@@ -495,8 +495,8 @@
                 <!-- Particle Burst Feedback (IDEA 011) -->
                 <controls:ParticleBurstCanvas x:Name="ParticleLayer" Grid.RowSpan="3" ZIndex="1000"/>
 
-                <!-- Meme Wall (IDEA 008) -->
-                <controls:MemeWallControl x:Name="MemeWall" Grid.RowSpan="3" ZIndex="996"/>
+                <!-- MEMEWALL_01 — the Meme Wall (IDEA 008) was removed: nothing ever made it visible.
+                     The meme picker (Controls/MemePickerWindow) now carries its thumbnails and search. -->
 
                 <!-- ══════════════════════════════════════════════════════════════════════════
                      ISSUE_14 — THIS ELEMENT WAS A GHOST FOR ITS ENTIRE LIFE. IT HAS A JOB NOW.

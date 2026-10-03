@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 
@@ -27,7 +30,7 @@ public static class OpenWithLaunch
         }
         catch (System.Exception swallowed)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

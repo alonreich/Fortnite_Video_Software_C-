@@ -1,4 +1,7 @@
-﻿using Avalonia.Controls;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 
@@ -14,6 +17,8 @@ public partial class ConfirmDialogWindow : Window
 
     public enum SaveChangesChoice { BackToEditing, Save, Discard }
 
+    // CROPUNSAVED_01 — explicit actions, with the harmless escape on Enter and Escape.
+    // Saving is green; discarding is red. Closing the prompt never discards anything.
     public static async System.Threading.Tasks.Task<SaveChangesChoice> AskSaveChangesAsync(
         Window owner, string profileName, string destination)
     {
@@ -87,6 +92,7 @@ public partial class ConfirmDialogWindow : Window
         {
             yesBtn.Classes.Remove("Success");
             yesBtn.Classes.Add("Danger");
+            // The destructive answer must not be what Enter presses.
             yesBtn.IsDefault = false;
         }
         if (noBtn != null)
@@ -271,12 +277,13 @@ public partial class ConfirmDialogWindow : Window
             dlg.SetTitle(title);
             dlg.SetMessage(message);
             dlg.SetButtonText(yesText, noText);
-            if (destructive) dlg.UseDestructiveStyling();
+            if (destructive) dlg.UseDestructiveStyling();   // DIALOG_02
             await dlg.ShowDialog(owner);
             return dlg.Result;
         }
         catch (System.Exception ex)
         {
+            // A confirmation that cannot be shown must NOT be treated as consent.
             RuntimeLog.Fail("DIALOG", $"Themed confirm failed, treating as declined: {ex.Message}");
             return false;
         }

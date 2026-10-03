@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text.Json.Nodes;
 using FreeVideoStudio.App;
 using FreeVideoStudio.Core.Infrastructure;
@@ -44,7 +47,7 @@ RuntimeLog.SetDeploymentPhase(false);
 FreeVideoStudio.Core.Infrastructure.CoreLogger.InfoAction = RuntimeLog.Info;
 FreeVideoStudio.Core.Infrastructure.CoreLogger.FailAction = RuntimeLog.Fail;
 FreeVideoStudio.Core.Infrastructure.CoreLogger.DebugAction = RuntimeLog.Debug;
-FreeVideoStudio.Core.Infrastructure.CoreLogger.WarnAction = RuntimeLog.WarnThrottled;
+FreeVideoStudio.Core.Infrastructure.CoreLogger.WarnAction = RuntimeLog.WarnThrottled;   // LOGVIS_01
 FreeVideoStudio.Core.Infrastructure.CoreLogger.AppendAction = RuntimeLog.AppendRaw;
 RuntimeLog.InitializeAppName(args);
 RuntimeLog.ResetForProcess();
@@ -82,6 +85,9 @@ bool isSiblingProcess = args.Any(a =>
 if (!isSiblingProcess)
 {
     _ = CrashLogDigest.RunAsync();
+    // REBRAND_02 — remove previous-brand residue once it is provably migrated (05 SYS-REBRAND).
+    if (!args.Contains("--upgrade-health"))
+        _ = Task.Run(FreeVideoStudio.Core.Infrastructure.LegacyResidueSweep.RunForCurrentUser);
 }
 
 string baseDir = System.IO.Path.GetDirectoryName(System.Environment.ProcessPath) ?? AppContext.BaseDirectory;
@@ -294,6 +300,19 @@ static async Task<int> RunUiAsync(string[] args)
     RuntimeLog.Info("RUN UI", "Running bootstrapper before UI.");
     await BootstrapAsync(showDialog: false);
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // COMPOSITION_01 — build the application service graph exactly once, here.
+    //
+    // Position is load-bearing. It is AFTER BootstrapAsync, which is what calls
+    // ApplicationPaths.EnsureWritableDirectories() — a graph built before that would hand every
+    // service paths to directories that do not exist yet. It is BEFORE Avalonia starts, so that
+    // the very first window constructed already finds a complete graph; AppServices.Current
+    // throws rather than lazily half-building one, because a half-built graph is how a fault sink
+    // ends up null at exactly the moment something faults.
+    //
+    // AvaloniaWindowProvider reads the desktop lifetime lazily, so constructing it before any
+    // window exists is safe and deliberate.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     FreeVideoStudio.App.Infrastructure.AppServices.Initialize(ApplicationPaths.CreateDefault());
 
     if (OperatingSystem.IsWindows())
@@ -306,6 +325,28 @@ static async Task<int> RunUiAsync(string[] args)
         .UsePlatformDetect()
         .WithInterFont();
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // TRACEFLOOD_01 — VERBOSE AVALONIA LOGGING FREEZES THE DEV BUILD. DO NOT RESTORE IT BLINDLY.
+    //
+    // LogToTrace routes through System.Diagnostics.Trace, whose DefaultTraceListener calls the
+    // native OutputDebugString. That call is synchronous and serialises every process on the
+    // machine through a single global OS mutex (DBWinMutex); with a debugger or `dotnet watch`
+    // attached it costs on the order of a millisecond EACH.
+    //
+    // At Verbose, Avalonia emits a trace line for ordinary property writes. Any redraw that
+    // touches many visuals therefore pays milliseconds per property. Captured from a frozen
+    // process (dotnet-dump, 2026-09-12), the UI thread was here:
+    //     GranularSpeedEditorWindow.RedrawTimeline -> RelayoutFrameLane
+    //       -> Avalonia.Visual.set_ClipToBounds
+    //         -> Trace.WriteLine -> OutputDebugString   (BLOCKED)
+    // The window stops repainting and the app reads as hard-frozen, in dev mode only.
+    //
+    // Warning level keeps every genuine Avalonia complaint (binding errors, layout warnings) and
+    // drops the per-property spam. To debug a specific Avalonia subsystem, opt IN narrowly and
+    // temporarily, e.g.:
+    //     builder.LogToTrace(LogEventLevel.Verbose, Avalonia.Logging.LogArea.Binding)
+    // and never with a timeline-heavy window open.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     builder = builder.LogToTrace(Avalonia.Logging.LogEventLevel.Warning);
     if (RuntimeLog.IsDevMode)
     {
@@ -363,7 +404,7 @@ static void PurgeStaleSetupUiFolders(string tempRoot, string keepFolder)
         }
         catch (System.Exception swallowed)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -374,8 +415,6 @@ internal static class NativeHelpers
     [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
     public static extern bool SetDllDirectory(string lpPathName);
 
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
-    public static extern IntPtr AddDllDirectory(string newDirectory);
 }
 
 

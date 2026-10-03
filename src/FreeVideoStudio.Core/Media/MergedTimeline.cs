@@ -1,4 +1,9 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -59,8 +64,6 @@ public readonly record struct MergedClip(
 /// </summary>
 public sealed class MergedTimeline
 {
-    /// <summary>A kept window shorter than this after removal means the removal is refused.</summary>
-    public const double MinContentSec = 0.05;
 
     public IReadOnlyList<MergedClip> Clips { get; }
     public double TotalSec { get; }
@@ -172,6 +175,7 @@ public sealed class MergedTimeline
     {
         if (!SameQueue(from)) return Math.Clamp(mergedSec, 0, TotalSec);
         var (clip, src) = from.Locate(mergedSec);
+        // A position at the very end of a clip stays at the end of that clip.
         return ToMerged(clip, src);
     }
 

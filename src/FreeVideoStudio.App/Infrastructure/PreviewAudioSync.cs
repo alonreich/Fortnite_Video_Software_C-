@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using FreeVideoStudio.Core.Media;
 using NAudio.Wave;
 
@@ -52,6 +55,8 @@ internal static class PreviewAudioSync
 
         if (shouldPlay && !playing)
         {
+            // Buffers are primed from here and the first one plays at once, so the audible start is
+            // this position. The lead only builds up after that.
             if (voiceTimeSec >= 0 && voiceTimeSec < total)
                 reader.CurrentTime = TimeSpan.FromSeconds(voiceTimeSec);
             player.Play();

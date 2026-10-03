@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Diagnostics;
 using FreeVideoStudio.Core.Infrastructure;
@@ -122,6 +125,8 @@ public sealed class FfmpegJobLifetime
     {
         _isCanceled = true;
 
+        // PROCGATE_01 — ONE consistent read, then act on that single reference. Never re-read the
+        // field between the null test and the kill; that is the race this whole gate exists for.
         Process? proc = PeekCurrentProcess();
 
         bool encoding = false;
@@ -133,6 +138,8 @@ public sealed class FfmpegJobLifetime
 
         CoreLogger.Info(_logTag, encoding ? stoppingMessage : idleMessage);
 
+        // The ObjectDisposedException / InvalidOperationException cases a raw Kill would have to
+        // catch by hand are handled inside the ladder: it re-checks HasExited and swallows.
         if (proc != null && encoding) BeginCooperativeShutdown(proc);
     }
 
@@ -155,6 +162,9 @@ public sealed class FfmpegJobLifetime
     /// </summary>
     public void DisposeJob()
     {
+        // PROCGATE_01 — atomic take, so this can never race the pipeline thread into a double
+        // Dispose of the same Process. MergerWorker.Dispose did the two-read version until
+        // PIPELIFE_02 routed it here.
         Process? proc = TakeCurrentProcess();
         if (proc == null) return;
 

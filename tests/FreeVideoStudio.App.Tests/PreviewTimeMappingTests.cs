@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using FreeVideoStudio.App.ViewModels;
 using FreeVideoStudio.Core.Media;
 using Xunit;
@@ -19,7 +22,7 @@ public sealed class PreviewTimeMappingTests
             IsTrimEndSet = true,
             BaseSpeed = 1.1,
         };
-        t.Cuts.Add(new CutRange(30_000, 50_000));
+        t.Cuts.Add(new CutRange(30_000, 50_000));   // 20 s removed before the playhead
         return t;
     }
 
@@ -38,6 +41,8 @@ public sealed class PreviewTimeMappingTests
     [Fact]
     public void AtBaseSpeedWithACutTheOutputClockIsNotTheSourceClock()
     {
+        // The old music preview used (source - trimStart) directly: 70 s here. The export places
+        // music at (70 - 20 cut) / 1.1 ≈ 45.45 s. That gap is the bug.
         var t = Timeline();
         Assert.Equal(50.0 / 1.1, t.PreviewSourceToOutputSeconds(80_000), 3);
     }

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Runtime.InteropServices;
 
@@ -28,9 +31,6 @@ public static unsafe class WglInterop
 
     [DllImport("opengl32.dll", ExactSpelling = true)]
     public static extern void glFlush();
-
-    [DllImport("opengl32.dll", ExactSpelling = true)]
-    public static extern void glFinish();
 
     public const uint GL_COLOR_BUFFER_BIT = 0x00004000;
 
@@ -109,9 +109,7 @@ public static unsafe class WglInterop
     public const uint GL_TEXTURE_MAG_FILTER = 0x2800;
     public const int GL_LINEAR = 0x2601;
 
-    public const uint WGL_ACCESS_READ_ONLY_NV = 0x0000;
     public const uint WGL_ACCESS_READ_WRITE_NV = 0x0001;
-    public const uint WGL_ACCESS_WRITE_DISCARD_NV = 0x0002;
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     public delegate void glGenFramebuffers_t(int n, uint[] framebuffers);

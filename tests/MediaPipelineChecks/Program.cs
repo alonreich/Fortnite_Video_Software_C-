@@ -6,6 +6,7 @@ using FreeVideoStudio.Core.Infrastructure;
 using FreeVideoStudio.Core.Ipc;
 using FreeVideoStudio.Core.Media;
 
+// Run from the workspace root. All generated media and state stay inside this directory.
 string root = Directory.GetCurrentDirectory();
 string ffmpeg = Path.Combine(root, "binaries", "ffmpeg.exe");
 if (!File.Exists(ffmpeg)) throw new InvalidOperationException("Run from the workspace root.");
@@ -59,10 +60,15 @@ await Check("FFmpeg filters remain identical across regional settings", async ()
             Require(speed.filterGraph == baseline, $"Graph varies under {culture}.");
             foreach (var rate in new[] { 0.1, 0.5, 1.0, 1.25, 4.0 })
             {
-                var tempoChain = GranularSpeedBuilder.BuildAtempoChain(rate);
-                if (tempoChain.Count == 0) continue;
-                await Ffmpeg("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-af",
-                    string.Join(",", tempoChain), "-t", "0.05", "-f", "null", "NUL");
+                // AVSYNC_01 — 1.0x is a true no-op and returns an empty chain.
+                // TEMPO_01 — both engines of the shared policy must parse in the bundled FFmpeg.
+                foreach (bool rubberband in new[] { false, true })
+                {
+                    var tempoChain = AudioTempoFilterBuilder.Build(rate, rubberband);
+                    if (tempoChain.Count == 0) continue;
+                    await Ffmpeg("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-af",
+                        string.Join(",", tempoChain), "-t", "0.05", "-f", "null", "NUL");
+                }
             }
             await Ffmpeg("-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
                 "-filter_complex", speed.filterGraph.Replace("[0:a]", "[1:a]"), "-map", speed.videoLabel, "-map", speed.audioLabel,
@@ -109,12 +115,14 @@ await Check("Actual mpv preview audio matches linear Wizard/export levels", asyn
     string source = Path.Combine(work, "preview-source.wav");
     await Ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=0.5", source);
     double referenceRms = 0;
+    MpvIpcClient.SetGlobalMuted(false);
+    MpvIpcClient.SetGlobalMasterVolume(100);   // VOLCURVE_01 — balances are linear under a 100% master
     foreach (int linear in new[] { 100, 80, 40, 20, 0 })
     {
         string wav = Path.Combine(work, $"preview-{linear}.wav");
         var result = await RunExecutable(Path.Combine(root, "binaries", "mpv.exe"),
             ["--no-config", "--no-terminal", "--vid=no", "--ao=pcm", "--ao-pcm-file=" + wav,
-             "--volume=" + MpvIpcClient.ToMpvVolume(linear).ToString(CultureInfo.InvariantCulture), source]);
+             "--volume=" + MpvIpcClient.PlayerMpvVolume(linear / 100.0).ToString(CultureInfo.InvariantCulture), source]);
         Require(result.exit == 0, result.error);
         string raw = wav + ".raw";
         await Ffmpeg("-i", wav, "-ac", "2", "-f", "f32le", raw);
@@ -136,7 +144,7 @@ await Check("New mpv audio previews inherit the preview master", async () =>
         MpvIpcClient.SetGlobalMasterVolume(master);
         using var player = new MpvIpcClient();
         await player.StartAudioOnlyAsync("");
-        Require(Math.Abs(double.Parse(player.GetPropertyString("volume")!, CultureInfo.InvariantCulture) - MpvIpcClient.ToMpvVolume(master)) < 0.01, "Initial mpv volume differs.");
+        Require(Math.Abs(double.Parse(player.GetPropertyString("volume")!, CultureInfo.InvariantCulture) - MpvIpcClient.PlayerMpvVolume()) < 0.01, "Initial mpv volume differs.");
     }
 });
 
@@ -155,8 +163,8 @@ await Check("Complete Main export works with decimal commas and muted preview", 
             InputPath = input, OutputDirectory = ExportDirectory("main-export"),
             StartTimeMs = 0, EndTimeMs = 1500, SpeedFactor = 1.25, OriginalResolution = "320x180",
             IsMobileFormat = false, HardwareStrategy = "CPU", QualityLevel = 20,
-            EnableFades = false, IntroStillSec = 0.1, ApplyLoudnessNormalization = false,
-            AutoSpikeFlattening = false, AutoVoiceNormalization = false
+            EnableFades = false, IntroStillSec = 0.1,
+            AutoSpikeFlattening = false
         };
         bool success = false;
         string output = "";
@@ -264,6 +272,12 @@ await Check("GPU: unsupported hardware decoding retries once and retains NVENC",
 
 await Check("GPU: size-locked NVENC export probes complexity and lands on target without a blind retry", async () =>
 {
+    // PROBE_01 — 20 s of 1080p60 content under a 25.0 MB size lock. The export must
+    // MEASURE the clip's complexity with a 5 s NVENC CQ-20 middle slice (software
+    // decode, null muxer), pull the -b:v ask below the naive budget by the calibrated
+    // margin, and land inside the acceptance band on the FIRST encode. The blind
+    // size-retry loop (attempt 2) must never be entered; it stays only as the safety
+    // net for probe failures and foreign NVENC SDK behaviour.
     string input = Path.Combine(work, "nvenc-size-source.mp4");
     if (!File.Exists(input))
         await Ffmpeg("-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=60:d=20",
@@ -290,6 +304,9 @@ await Check("GPU: size-locked NVENC export probes complexity and lands on target
     string log = File.ReadAllText(Path.Combine(work, "gpu-size-probe.log"));
     Require(log.Split("PROBE_01 complexity probe:").Length == 2,
         "The probe must run exactly once per export.");
+    // The probe-scaled rate must actually reach the encoder: -b:v and -maxrate carry
+    // the same probe-discounted value, below the 10358 kbps naive budget for this
+    // exact 25.0 MB / 20 s / 127 kbps-audio configuration.
     var bv = System.Text.RegularExpressions.Regex.Match(log, @"-b:v (\d+)k");
     var mr = System.Text.RegularExpressions.Regex.Match(log, @"-maxrate (\d+)k");
     Require(bv.Success && mr.Success && bv.Groups[1].Value == mr.Groups[1].Value,
@@ -453,8 +470,8 @@ await Check("Export errors: GPU failure followed by successful fallback leaves L
         InputPath = input, OutputDirectory = ExportDirectory("gpu-fallback-check"),
         StartTimeMs = 0, EndTimeMs = 1800, OriginalResolution = "320x180",
         IsMobileFormat = false, HardwareStrategy = "NVIDIA", QualityLevel = 20,
-        EnableFades = false, ApplyLoudnessNormalization = false,
-        AutoSpikeFlattening = false, AutoVoiceNormalization = false
+        EnableFades = false,
+        AutoSpikeFlattening = false
     };
 
     bool success = false;
@@ -500,6 +517,11 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
     const double AacPacketSec = 1024.0 / SampleRate;
     string ffprobe = Path.Combine(root, "binaries", "ffprobe.exe");
 
+    // AVSYNC_01 — the synthetic source. Ten seconds of 30 fps footage with a 1 kHz
+    // beep whose ONSET sits exactly on every 1.0 s frame boundary (0.2 s beep,
+    // 0.8 s silence). The beeps are drift probes: whatever the export graph does
+    // to time, each surviving beep's decoded onset must equal the output second
+    // that OutputTimeline predicts for its source second.
     string input = Path.Combine(work, "sync-source.mp4");
     string beep = "0.8*sin(2*PI*1000*t)*lt(mod(t\\,1)\\,0.2)";
     await Ffmpeg(
@@ -508,6 +530,14 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-shortest", input);
 
+    // AVSYNC_01 — the edit under test, expressed exactly as the UI expresses it:
+    // CutRange and SpeedSegment in ABSOLUTE source milliseconds. The cut swallows
+    // the 2 s beep whole and closes the timeline up; the 0.5x segment doubles
+    // 5-6 s. Expected finished video: [0,2) + [3,5) + [5,6)@0.5 + [6,10) =
+    // exactly 10.0 s. Normalisation and the peak limiter are switched off on
+    // purpose: they are gain stages orthogonal to the seam mathematics under
+    // test, and the limiter's lookahead is itself a few milliseconds of filter
+    // latency that would pollute the drift measurement.
     using var worker = new ProcessWorker(new ApplicationPaths(Path.Combine(work, "sync-state")))
     {
         InputPath = input, OutputDirectory = ExportDirectory("sync-export"),
@@ -516,8 +546,8 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
         Cuts = [new CutRange(2000, 3000)],
         OriginalResolution = "320x180", IsMobileFormat = false,
         HardwareStrategy = "CPU", QualityLevel = 20,
-        EnableFades = false, ApplyLoudnessNormalization = false,
-        AutoSpikeFlattening = false, AutoVoiceNormalization = false
+        EnableFades = false,
+        AutoSpikeFlattening = false
     };
     bool success = false;
     string output = "";
@@ -525,6 +555,10 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
     await worker.RunAsync();
     Require(success, worker.FailureDetail ?? output);
 
+    // The timeline model the rest of the application already draws with is the
+    // independent oracle: source second -> output second for each beep that
+    // survives the cut. The canonical mapping is asserted too, so a change to
+    // the model itself can never silently re-bless this check.
     var timeline = OutputTimeline.Create(10000, [new SpeedSegment(5000, 6000, 0.5)], 1.0, 0, null,
         [new OutputTimeline.Cut(2.0, 3.0)]);
     double[] expected = new[] { 0, 1, 3, 4, 5, 6, 7, 8, 9 }.Select(s => timeline.SourceToOutput(s)).ToArray();
@@ -533,6 +567,11 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
         Require(Math.Abs(expected[i] - canonical[i]) < 1e-9,
             $"OutputTimeline oracle returned {expected[i]:F4}s for beep {i + 1}, expected {canonical[i]:F4}s.");
 
+    // AVSYNC_01 — packet-level truth on the finished file. The mix is AAC at
+    // 48 kHz, so every full packet is exactly 1024 samples. If any seam drops,
+    // duplicates or offsets audio, a pts gap stops being 1024/48000 long before
+    // the drift can reach the 5 ms budget. (1 ms structural budget — far
+    // tighter than the 5 ms DoD, and immune to ffprobe's 6-decimal rounding.)
     var audioPackets = JsonNode.Parse(await RunText(ffprobe, "-v", "error", "-select_streams", "a",
         "-show_entries", "packet=pts_time,duration_time", "-of", "json", output))!["packets"]!.AsArray();
     var audioPts = new List<double>();
@@ -549,6 +588,10 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
     double worstGap = 0;
     for (int i = 1; i < audioPts.Count - 1; i++)
         worstGap = Math.Max(worstGap, Math.Abs(audioPts[i] - audioPts[i - 1] - AacPacketSec));
+    // AAC's encoder priming is the ONE negative start allowed: the encoder emits
+    // a leading frame the edit list discards, so raw packet pts may begin exactly
+    // one frame before zero — decoded content still starts at zero, which the
+    // beep-onset measurement below proves against the same budget.
     Require(audioPts[0] >= -AacPacketSec - 0.0005 && audioPts[0] <= DriftToleranceSec,
         $"Audio stream starts at {audioPts[0]:F6}s; only one AAC frame of encoder priming (-{AacPacketSec:F6}s) may precede zero.");
     Require(worstGap <= 0.001,
@@ -556,6 +599,11 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
     Require(Math.Abs(audioPts[^1] + lastDuration - 10.0) <= DriftToleranceSec,
         $"Audio spans {audioPts[0]:F4}-{audioPts[^1] + lastDuration:F4}s; the finished edit must be exactly 10.0 s.");
     Console.WriteLine($"  Audio packets: {audioPts.Count}, first={audioPts[0]:F6}s, last={audioPts[^1]:F6}s (+{lastDuration:F6}s), worst gap error {worstGap * 1000:F3} ms.");
+    // AVSYNC-PART2 — the video side of the same contract: 600 frames of strict
+    // CFR 60 starting at zero, and a keyframe sitting exactly on each seam
+    // second (the exporter's 2 s GOP puts an IDR on every concat boundary:
+    // 0/2/4/6/8 s). B-frames reorder packets, so pts are sorted before the
+    // uniform-spacing assertion.
     var videoPackets = JsonNode.Parse(await RunText(ffprobe, "-v", "error", "-select_streams", "v",
         "-show_entries", "packet=pts_time,flags", "-of", "json", output))!["packets"]!.AsArray();
     var frames = videoPackets
@@ -577,6 +625,11 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
         Require(onSeam.Any(f => f.Keyframe), $"No keyframe lands on the {seam}s seam.");
     }
 
+    // AVSYNC-PART2 — decode the finished mix and measure where each beep
+    // actually begins. A 1 ms backward-looking peak envelope feeds a rising-edge
+    // gate (on above 30% of the beep plateau, off below 5%); the backward window
+    // keeps the detected edge a fraction of a millisecond after the true one, so
+    // the whole 5 ms budget stays available for real drift.
     string raw = Path.Combine(work, "sync-output-audio.raw");
     await Ffmpeg("-i", output, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", raw);
     byte[] bytes = File.ReadAllBytes(raw);
@@ -601,6 +654,11 @@ await Check("A/V sync drift: cut and speed seams keep audio packets flush with v
     string found = string.Join(", ", onsets.Select(o => o.ToString("F4", CultureInfo.InvariantCulture)));
     Require(onsets.Count == canonical.Length,
         $"Expected {canonical.Length} beeps after the cut, found {onsets.Count}: [{found}].");
+    // The beep at output 0.0 sits on TWO by-design amplitude ramps: the SPLICE_01
+    // de-click fade into its chunk and the AAC decoder's first-frame
+    // reconstruction after the edit-list priming trim. Both delay the envelope
+    // crossing (~10 ms combined) without moving the content — the packet checks
+    // above prove the t=0 boundary exactly (one priming frame, then zero drift).
     const double StartOfStreamBudgetSec = 0.012;
     double worstDrift = 0;
     int worstIndex = 0;
@@ -735,8 +793,8 @@ async Task<(string path, bool gpu, string description, ProcessWorker worker)> Ma
         InputPath = input, OutputDirectory = ExportDirectory(name),
         StartTimeMs = 0, EndTimeMs = 1800, OriginalResolution = "320x180",
         IsMobileFormat = false, HardwareStrategy = "NVIDIA", QualityLevel = 20,
-        EnableFades = false, ApplyLoudnessNormalization = false,
-        AutoSpikeFlattening = false, AutoVoiceNormalization = false
+        EnableFades = false,
+        AutoSpikeFlattening = false
     };
     configure(worker);
     bool success = false;

@@ -10,7 +10,7 @@
 | `src/FreeVideoStudio.Core/Infrastructure/CoreLogger.cs` | `CoreLogger` | `InfoAction`, `FailAction`, `Warn`, `Swallowed` | Core-side logging facade; the App wires its actions to `RuntimeLog` at startup. |
 | `src/FreeVideoStudio.Core/Infrastructure/RecoveryManager.cs` | `RecoveryManager` | `SaveState`, `LoadState`, `CheckFault`, `IsSafeModeActive` | Continuous project session serialization, crash detection, and safe-mode recovery. **⚠ CO-GOVERNED BY: GOV**|
 | `src/FreeVideoStudio.Core/Infrastructure/AtomicJsonFile.cs` | `AtomicJsonFile` | `WriteObject`, `WriteText`, `WriteCore`, `ReadObject`, `ATOMICTEXT_01` | Thread-safe, power-outage-safe atomic JSON file writing and parsing. |
-| `src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Update(Action<AppSettings>)`, `SetAutoUpdateChecks`, `Committed`, `Save`, `Load`, `SettingsMutexName`, `SerializeGate`, `CurrentSchemaVersion` (10), `SETTINGSATOMIC_01`, `SETTX_01` | Cross-process settings persistence under a named mutex and the atomic write protocol; the ONLY settings mutation path is `Update`. |
+| `src/FreeVideoStudio.App/Infrastructure/SettingsManager.cs` | `SettingsManager` | `Update(Action<AppSettings>)`, `SetAutoUpdateChecks`, `Committed`, `Load`, `SettingsMutexName`, `SerializeGate`, `CurrentSchemaVersion` (13), `SETTINGSATOMIC_01`, `SETTX_01`, `SETTX_02` | Cross-process settings persistence under a named mutex and the atomic write protocol; the ONLY settings mutation path is `Update`. |
 | `src/FreeVideoStudio.App/Services/GeminiTrackingService.cs` | `GeminiTrackingService` | `PostWithRetryAsync`, `TestApiKeyAsync` | Transient retry loop with exponential backoff and API key sanitization in logs. **⚠ CO-GOVERNED BY: 01, 03, 04**|
 | `src/FreeVideoStudio.Core/Ipc/NamedPipeStateServer.cs` | `NamedPipeStateServer` | `ScheduleDiskFlush`, `FlushToDiskSafe`, `IPCLEASE_01`, `IPCTEARDOWN_01` | In-memory session state server, bounded flush scheduling and ordered teardown. |
 | `src/FreeVideoStudio.Core/Ipc/NamedPipeStateClient.cs` | `NamedPipeStateClient` | `GetStateAsync`, `SetStateAsync`, `FastProbeTimeout` | IPC client communicating with the running session state server. |
@@ -23,6 +23,8 @@
 | `src/FreeVideoStudio.App/SingleInstanceGuard.cs` | `SingleInstanceGuard` | `TryAcquire`, `Release`, `AppliesTo` | Single application instance enforcement and focus delegation via named mutex. |
 | `src/FreeVideoStudio.Core/Infrastructure/AppDataPaths.cs` | `AppDataPaths` | `AppDataDir`, `LocalCacheDir`, `MigrateDirectory`, `REBRAND_01` | Copy-only rebrand migration before default state initialization. |
 | `src/FreeVideoStudio.Core/Infrastructure/LegacyAppDataNames.txt` | Embedded legacy directory identities | `LegacyAppDataNames.txt` | Historical names retained only as migration data. |
+| `src/FreeVideoStudio.Core/Infrastructure/LegacyResidueSweep.cs` | `LegacyResidueSweep` | `RunForCurrentUser`, `Run`, `LegacyTempNames`, `LegacyStorageNames`, `REBRAND_02` | Removes previous-brand temp/user folders once provably migrated. |
+| `tests/FreeVideoStudio.Core.Tests/RebrandTests.cs` | `RebrandTests` | sweep, naming and brand-allow-list tests | Rebrand residue and output-name regression coverage. |
 | `tests/FreeVideoStudio.Core.Tests/AppDataPathsTests.cs` | `AppDataPathsTests` | migration, retry, collision and existing-destination tests | Rebrand data-preservation regression coverage. |
 | `src/FreeVideoStudio.Core/Infrastructure/ApplicationPaths.cs` | `ApplicationPaths` | `ProgramDataRoot`, `DefaultUserRoot`, `RecoveryStateFile`, `SessionStateFile`, `MergerSessionFile`, `LaneCacheDirectory`, `EnsureWritableDirectories` | System directory resolution, temp workspace paths, and sentinel lock files. **⚠ CO-GOVERNED BY: GOV**|
 | `src/FreeVideoStudio.Core/Infrastructure/UiStateStore.cs` | `UiStateStore` | `ReadInt`, `WriteInt`, `MigrateLegacyFilesOnce`, `ReadText` | Lightweight persistent key-value configuration and coach tour launch counts. |
@@ -250,29 +252,41 @@
   caller-supplied JSON string, so a source-generated (NativeAOT) serializer's exact bytes reach disk
   without a `JsonNode` round-trip that could silently reshape them. `WriteObject` and `WriteText` share
   one `WriteCore`. **Never reimplement this sequence at a call site.**
-* **Locks are held around the WRITE, never around serialisation and never across a UI `await`.**
-  `SerializeGate` (in-process monitor) snapshots the document; `Global\FvsFreeVideoStudioMutex_<user SID>` (USERSCOPE_01) serialises the
-  disk write with the 2-second `InteractiveMutexTimeout` so a wedged sibling process cannot freeze a
-  click. A `LockException` is logged and reported as a failed save, not swallowed.
-* **`SETTX_01` — the MUTATION boundary, not just the serialisation boundary.**
-  Atomic disk writing alone still allowed two logical updates to race on the shared `Instance`
-  object before the snapshot was taken (last-writer-wins, torn preferences). All settings
-  mutation therefore goes through ONE transaction API, `SettingsManager.Update(Action<AppSettings>)`
-  (plus the typed `SetAutoUpdateChecks` helper):
-  1. acquire the in-process `SerializeGate`;
-  2. re-read the FRESHEST persisted settings under the cross-process settings mutex
-     (defaults + `Migrate` + corrupt-file quarantine applied exactly as `Load` does) — a patch is
-     never applied to a stale snapshot, so a sibling process's newer values survive;
-  3. apply the patch, stamp the schema version;
-  4. serialize the one consistent snapshot inside the gate, outside the mutex;
-  5. `AtomicJsonFile.WriteText` under the mutex — same durable protocol as above;
-  6. publish the new snapshot and raise `SettingsManager.Committed` ONLY after the durable
-     commit succeeded. A failed commit publishes nothing, changes nothing, returns false.
-  External code may READ `SettingsManager.Instance.*` but must never ASSIGN through it; the
-  public `Save()` is now private (a final-sink for `Load`'s own recovery paths only). This is
-  guarded by `SettingsTransactionArchitectureTests.NoExternalDirectAssignmentThroughSettingsManagerInstance`
-  and behaviourally by `SettingsTransactionTests` (one-click-one-commit, concurrent updates,
-  stale cross-process snapshot defence, write-failure semantics, migration, corruption).
+* **Lock waits are bounded and never span a UI `await`.** `Global\FvsFreeVideoStudioMutex_<user SID>`
+  (USERSCOPE_01) is acquired with the 2-second `InteractiveMutexTimeout` so a wedged sibling process
+  cannot freeze a click. A `LockException` is logged and reported as a failed save, not swallowed.
+* **`SETTX_01` / `SETTX_02` — ONE transaction, ONE mutex acquisition.**
+  All settings mutation goes through `SettingsManager.Update(Action<AppSettings>)` (plus the typed
+  `SetAutoUpdateChecks` helper). SETTX_01 re-read the persisted file before patching, but released
+  the mutex after the read and re-acquired it for the write; a sibling process could commit in that
+  gap and be overwritten by the stale snapshot (lost update). SETTX_02 closes it:
+  * **Lock order (the only order):** `SerializeGate` (in-process monitor) → settings named mutex →
+    file I/O. The mutex is acquired exactly once per transaction and is held across
+    read → deserialize → migrate/default → patch → serialize → `AtomicJsonFile.WriteText`.
+    Helpers that touch the file (`ReadPersistedLocked`, `TryWriteLocked`) REQUIRE the caller to hold
+    both locks and never acquire either (no recursion, including through corruption quarantine).
+    `Load` follows the same order. No lock is held while `Committed` is raised.
+  * **Publish only after durable success.** `Instance` changes and `Committed` is raised only after
+    `AtomicJsonFile.WriteText` returned. A failed lock/read/patch/serialize/write returns false and
+    leaves `Instance` and the file untouched.
+  * **Forward compatibility.** Known fields are deserialized with the source-generated
+    `SettingsJsonContext` (no reflection). Unknown ROOT properties (written by a newer build) are
+    captured as `JsonNode`s, and after the patch merged back into the serialized known document;
+    a known current field wins any name collision. With nothing to merge, the serializer's exact
+    bytes are written (ATOMICTEXT_01). Unknown properties nested inside known objects are not
+    preserved.
+  * **Schema.** Older → migrated to `CurrentSchemaVersion`; current → stays current; FUTURE → never
+    downgraded (the write carries `max(persisted, current)`), and `Load` leaves a future-schema file
+    untouched.
+  * **Corruption.** An unparseable file is quarantined (`settings.json.corrupt-*.bak`, max 5) and
+    replaced with defaults + the patch — never with this process's stale in-memory snapshot. A file
+    that exists but cannot be READ aborts the transaction and is left alone.
+  External code may READ `SettingsManager.Instance.*` but must never ASSIGN through it (directly,
+  by compound assignment/`++`/`--`, or through a local alias). There is no `Save()` any more. Guarded
+  by `ArchitectureRuleTests.NoExternalDirectAssignmentThroughSettingsManagerInstance` (zero baseline)
+  and behaviourally by `SettingsTransactionTests` (concurrent unrelated updates, cross-process writer
+  blocked between read and write, unknown/future data preserved, failed write publishes nothing,
+  corruption, SettingsWindow one-transaction, UpdateService helper usage).
 
 ## 4d. Bounded Flush Scheduling & Ordered IPC Teardown  {#SYS-IPCLIFETIME}
 * **`FLUSHCEILING_01` — a debounce without a maximum-wait ceiling is not a debounce.**
@@ -366,6 +380,8 @@
   5. NativeAOT compilation and publish flags (`-p:Version=`, `-p:AssemblyVersion=`, `-p:FileVersion=`, `-p:InformationalVersion=`).
 * **Title Bar Version Invariant:** The running executable extracts its stamped version via `DeploymentLifecycle.GetCurrentVersion()` (reading Win32 `ProductVersion` and `FileVersion`, assembly metadata, and root `version.txt` fallbacks). Custom window title bars format `Free Video Studio v{version}` and `Free Video Studio - Video Merger v{version}` directly, ensuring zero discrepancies.
 * **Version Parsing Robustness:** `DeploymentLifecycle.TryParseVersion` trims leading `'v'`/`'V'` prefixes before filtering numeric dot segments. Tags such as `v2026.09.12.0159` parse accurately into .NET `Version` objects (`2026.9.12.159`) with strict numerical comparison. Invalid or non-numeric inputs return `false` and guarantee a safe non-null `0.0` fallback.
+* **Schema v13 (DUCKSTRENGTH_01):** adds `Defaults.DuckingEnabled` / `CarvingEnabled` (seeded ONCE from the legacy `Defaults.AudioProtection`, so a user who had protection off keeps it off) and `Defaults.DuckingStrength` / `CarvingStrength` (default 50 = tuned). Values the user sets are never reset by a later migration.
+* **Schema v12 (LOUDSTD_REMOVED_01 / CLIPLEVEL_01 / VOLMUTE_01):** removes `LoudnessNormalizationPrompt` and `Defaults.AutoVoiceNormalization` (old keys are ignored on read and dropped on the next write); adds `MergerMatchClipLoudness` (default OFF) and `PreviewMuted` (default OFF). The master LEVEL stays in the session state (`MainVolume`), written by `MasterVolumePersistence` off the UI thread.
 * **Schema v10 (SYS-AISETTINGS):** Introduces configuration for Universal AI Smart Tracking Zoom:
   * `GeminiApiKey` (string, default `""`): Google Gemini API key used for vision model calls, persisted under the settings mutex.
   * `GeminiModelName` (string, default `"gemini-2.5-flash"`): selected Gemini model endpoint.
@@ -516,6 +532,38 @@ signed releases in disposable Windows installations. Unit tests do not establish
 
 Canonical per-user roots are `%APPDATA%\FreeVideoStudio` and `%LOCALAPPDATA%\FreeVideoStudio`. `AppDataPaths` reads the two historical names from its embedded `LegacyAppDataNames.txt` resource. Before creating either root, it copies existing files (including nested presets and recovery backups) into a sibling staging directory and atomically renames the complete directory into place. Existing destinations are untouched. Source directories are retained. Failed copies leave no partial destination, continue using the legacy root, and retry on the next launch. The spaced local legacy root takes precedence over the older compact root. `ApplicationPaths.CreateDefault` invokes this before the existing machine-to-user migration; the development/test override remains isolated. Settings locking uses the `Global\FvsFreeVideoStudioMutex_` prefix with the existing per-user scope.
 
-The legacy resource contains `FortniteVideoSoftware` and `Fortnite Video Software`. Roaming migration checks the compact name first; local migration checks the spaced name first. If both sources contain the same relative filename, the first source wins and the originals remain untouched. New destinations are never merged into or overwritten. If copying fails with an I/O or permission error, the resolver uses the first existing legacy source for that process and retries migration on the next launch; staging cleanup is best-effort.
+The legacy resource contains the previous compact and spaced product names (listed only in `REBRAND_MIGRATION.md`). Roaming migration checks the compact name first; local migration checks the spaced name first. If both sources contain the same relative filename, the first source wins and the originals remain untouched. New destinations are never merged into or overwritten. If copying fails with an I/O or permission error, the resolver uses the first existing legacy source for that process and retries migration on the next launch; staging cleanup is best-effort.
 
 This per-user rebrand migration copies recovery backups and is distinct from `MigrateLegacyMachineRoot`, which deliberately excludes another account's session/recovery files. `LocalCacheDir` is also the default mutable-state root exposed through the historically named `ApplicationPaths.ProgramDataRoot`; it is not limited to disposable caches. `LegacyRoamingUiStateDirectory` resolves to `AppDataDir/Settings` for the existing UI-state migration. `FVS_PROGRAMDATA_ROOT` bypasses default-root migration in development and tests. `REBRAND_01` is registered in `build/sentinels.txt`; `AppDataPathsTests` covers recursive copies, unchanged existing destinations, failed-copy retries and precedence between legacy roots.
+
+### REBRAND_02 — previous-brand residue removal  {#SYS-REBRAND-SWEEP}
+
+REBRAND_01 and UPGRADE_04 never delete their sources, so `Program` starts `LegacyResidueSweep.RunForCurrentUser` on a background task on every normal UI launch (not in sibling tool processes, deployment helpers, `--upgrade-health`, or under `FVS_PROGRAMDATA_ROOT`). It does nothing while a previous-brand executable exists in Program Files, a previous-brand process runs, or a journal under `%LOCALAPPDATA%`/`%APPDATA%\FreeVideoStudioMigration` is not `Committed`/`Pruned`. Otherwise:
+
+* Legacy `%TEMP%` roots (`LegacyTempNames`) are scratch. Rescued renders (`*-RECOVERED-*.mp4`) are moved into `ApplicationPaths.TempDirectory` first, renamed to `FreeVideoStudio-RECOVERED-…` (Merger rescues keep `Merged-Videos-RECOVERED-…`), never overwriting (a `-2`, `-3` … suffix is added). If any rescue cannot be moved, the folder is kept.
+* A legacy Local/Roaming root is deleted only when the current root exists and every legacy file exists at the same relative path in the current root. Otherwise it is kept and retried on the next launch.
+* The shared `%ProgramData%` legacy root is never deleted here. The elevated uninstaller removes it with every legacy user root when user data is removed (`DeploymentFootprint.GetDirectoryPurgeTargets`, `includeUserData`).
+
+The sweep never throws; failures are logged under the `Rebrand` tag. `RebrandTests` covers rescue moves, collision-free renames, mirrored versus partial roots, the closed safety gate, and the repository-wide previous-name allow list.
+
+### NOSPACE_01 — Folder names on disk never contain spaces  {#SYS-NOSPACE}
+
+"Free Video Studio" is the DISPLAY name (title bars, dialogs, Apps & features, shortcut labels such as `Free Video Studio.lnk`, the uninstall registry key). Every FOLDER the app creates uses `ApplicationPaths.AppDirectoryName` = `FreeVideoStudio`:
+
+| Folder | Before | Now |
+| :--- | :--- | :--- |
+| Install | `%ProgramFiles%\Free Video Studio` | `%ProgramFiles%\FreeVideoStudio` (`DeploymentFootprint.InstallFolder`) |
+| Machine data (legacy, purge only) | `%ProgramData%\Free Video Studio` | `%ProgramData%\FreeVideoStudio` |
+| Installer scratch | `%TEMP%\FreeVideoStudio\Free Video Studio` | `%TEMP%\FreeVideoStudio\FreeVideoStudio` (`TempAppFolder`; a subfolder on purpose, because `%TEMP%\FreeVideoStudio` holds rescued renders) |
+| Memes | `Videos\Free Video Studio\Memes` | `Videos\FreeVideoStudio\Memes` (MEMEFOLDER_02, `03` FFM-MEMELIB) |
+
+Moving an existing install reuses the transactional upgrade (SYS-UPGRADE) unchanged:
+
+* `InstallDiscovery.FindRoots` treats `%ProgramFiles%\Free Video Studio` (`DeploymentFootprint.LegacyInstallFolderName`) as a legacy root exactly like a previous-brand folder, so `DirectoryUpgrade` backs it up, builds the new folder and keeps the backup for 30 days. Shortcuts are owned by target, so the machine Start menu / Public Desktop and the installing user's Desktop are rewritten to the new path; the uninstall key's `InstallLocation` and Open With commands point at the new path.
+* **Compact updates:** `InstallDiscovery.ReuseRoot` picks the first root holding `install.manifest.json` (Destination first). It used to be Destination only, which does not exist yet during the move, so every compact update of such a machine would have demanded the full installer.
+* **Old journals:** machine journals written before NOSPACE_01 name the spaced folder as `Destination`. `UpgradeInstallWorker.Transactions` accepts both `InstallDiscovery.KnownDestinations` and builds the root set from the journal's own destination; rejecting them would have blocked every later install on that machine.
+* **Previous-brand precedence:** the spaced current-brand root does not count as a "legacy" source for `preferLegacy`; only previous-brand roots do.
+* **Other Windows accounts:** an account that already finished its migration never re-ran `CompleteUserAsync`. `RetargetAfterLaterMachineMoveAsync` now runs once per newer committed machine journal (`retargetedMachine` in the user session) and repoints that user's EXISTING app shortcuts (not uninstall shortcuts) to the new executable. It creates and deletes nothing and never blocks startup.
+* Uninstall and the zero-footprint check include the old spaced install, ProgramData and scratch folders.
+
+`MemeLibraryTests.AppFoldersHaveNoSpaces` guards the folder names. Real-Windows verification still required: upgrade from a spaced install (full and compact), a second account's Desktop icon, uninstall afterwards.

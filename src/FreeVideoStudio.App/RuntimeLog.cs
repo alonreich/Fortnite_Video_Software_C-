@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.Linq;
@@ -227,11 +230,21 @@ public static class RuntimeLog
         {
             string where = $"{System.IO.Path.GetFileName(file)}:{line} {member}()";
 
+            // FAULTTIER_02 — routed through the sink, like CoreLogger.Swallowed. See the long note
+            // there: these two are one contract in two assemblies, and between them they are how
+            // most of this codebase handles a caught exception. Recoverable, so the user sees
+            // nothing new; the difference is that the failure now EXISTS to the fault system.
+            //
+            // ⚠️ NOT reachable from inside the sink's own logging path. Report -> RuntimeLog.Debug
+            // -> Write, and Write does not call Swallowed — it has its own emergency guard
+            // (EmergencyWrite). If that ever changes, this becomes infinite recursion on the
+            // thread that was already failing, so check before adding one.
             FreeVideoStudio.Core.Abstractions.Faults.Recoverable(
                 "SWALLOWED", $"{where} — {ex.GetType().Name}: {ex.Message}", ex);
         }
         catch (Exception)
         {
+            // Nothing left to escalate to.
         }
     }
 

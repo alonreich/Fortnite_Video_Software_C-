@@ -1,8 +1,11 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
-using FreeVideoStudio.Core.Media;
+using FreeVideoStudio.Core.Media;   // Frac, CoordinateMath
 
 namespace FreeVideoStudio.App.Infrastructure;
 
@@ -89,9 +92,11 @@ internal static class CropGeometry
     /// <returns>The change in WIDTH the drag represents.</returns>
     internal static double DiagonalWidthDelta(double dx, double dy, double aspect)
     {
+        // Unit vector along the box diagonal, expressed per unit of width: (1, aspect).
         double len = Math.Sqrt(1.0 + aspect * aspect);
         if (len < 1e-6) return dx;
 
+        // Dot the drag onto that direction, then convert back from diagonal distance into width.
         double alongDiagonal = (dx * 1.0 + dy * aspect) / len;
         return alongDiagonal / len;
     }

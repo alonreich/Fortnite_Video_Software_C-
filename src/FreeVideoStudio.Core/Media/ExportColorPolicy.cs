@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -154,6 +157,7 @@ public static class ExportColorPolicy
             var result = await AsyncProcessRunner.RunAsync(psi, timeout: TimeSpan.FromSeconds(10)).ConfigureAwait(false);
             foreach (string raw in result.StandardOutput.Split('\n'))
             {
+                // " T.C zscale            V->V       Apply resizing, colorspace and bit depth conversion."
                 string[] parts = raw.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2 && parts[0].Length == 3) set.Add(parts[1]);
             }
@@ -161,6 +165,7 @@ public static class ExportColorPolicy
         }
         catch (Exception ex)
         {
+            // An empty set means "assume no zscale": HDR clips degrade loudly instead of failing.
             CoreLogger.Fail("COLOR", $"Could not list FFmpeg filters ({ex.Message}); HDR tone mapping disabled for this session.");
         }
         return set;

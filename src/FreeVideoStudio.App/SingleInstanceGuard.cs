@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.IO.Pipes;
@@ -67,7 +70,7 @@ public static class SingleInstanceGuard
             catch (System.Exception swallowed3)
             {
                 scope = Environment.UserName;
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             }
 
             _cachedUserScope = scope.Replace('\\', '_');
@@ -234,7 +237,7 @@ public static class SingleInstanceGuard
                 }
                 catch (OperationCanceledException swallowed5)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
                     return;
                 }
                 catch (Exception ex)
@@ -242,7 +245,7 @@ public static class SingleInstanceGuard
                     RuntimeLog.Fail("SingleInstance", $"Handoff listener error: {ex.Message}");
                     try { await Task.Delay(500, token).ConfigureAwait(false); } catch (System.Exception swallowed2)
                     {
-                        global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+                        global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                         return;
                     }
                 }
@@ -329,7 +332,7 @@ public static class SingleInstanceGuard
         }
         catch (System.Exception swallowed4)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

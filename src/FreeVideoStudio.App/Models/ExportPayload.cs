@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using FreeVideoStudio.Core.Media;
@@ -9,6 +12,9 @@ public record ExportPayload
 {
     public string InputPath { get; init; } = string.Empty;
     public string OutputDirectory { get; init; } = string.Empty;
+
+    /// <summary>OUTNAME_01 — automatic file-name base (Settings › Output Files).</summary>
+    public string OutputBaseName { get; init; } = FreeVideoStudio.Core.Media.OutputFileNaming.MainDefaultBaseName;
     public double TrimStartMs { get; init; }
     public double TrimEndMs { get; init; }
     public double LoadedVideoDurationMs { get; init; }
@@ -26,8 +32,8 @@ public record ExportPayload
     public bool VoiceOverProtectFromMusic { get; init; }
     
     public string HardwareMode { get; init; } = "Auto";
-    public double? SourceMeasuredLufs { get; init; }
-    public bool? ApplyLoudnessNormalization { get; init; }
+    /// <summary>Upload-time measured gameplay loudness — fallback reference for the peak tamer and meme matching only.</summary>
+    public double? GameplayLoudnessLufs { get; init; }
     public bool? ApplyPeakFlattening { get; init; }
     public bool IsMobileFormat { get; init; }
     public bool EnableFades { get; init; }

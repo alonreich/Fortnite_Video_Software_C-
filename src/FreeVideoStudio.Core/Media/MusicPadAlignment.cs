@@ -1,4 +1,10 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 
 namespace FreeVideoStudio.Core.Media;
@@ -47,6 +53,8 @@ public static class MusicPadAlignment
         if (leadFadeIn && padStartSec > 0 && firstDelay <= EdgeToleranceSec)
             preRoll = Math.Min(padStartSec, Math.Max(0, result[0].Offset));
 
+        // Everything moves by the lead pad; a pre-roll starts the first track earlier by the same
+        // amount it gains in length, so every later track (placed after the ones before it) stays put.
         for (int i = 0; i < result.Count; i++)
             result[i] = result[i] with { TimelineStartDelay = result[i].TimelineStartDelay + padStartSec - preRoll };
         if (preRoll > 0)
@@ -54,7 +62,7 @@ public static class MusicPadAlignment
 
         if (tailFadeOut && padEndSec > 0)
         {
-            double bedEnd = firstDelay + Sum(tracks);
+            double bedEnd = firstDelay + Sum(tracks);   // where the bed ends on the MARK START clock
             double trimmedBody = bodySec - padStartSec - padEndSec;
             if (bedEnd >= trimmedBody - EdgeToleranceSec)
                 result[^1] = result[^1] with { Duration = result[^1].Duration + padEndSec };

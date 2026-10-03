@@ -1,4 +1,7 @@
-﻿using Avalonia.Platform.Storage;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md, docs/02_AUDIO_ENGINE_MASTERING.md, docs/04_UI_UX_AVALONIA_SPEC.md, docs/SPEC_GOVERNANCE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia.Platform.Storage;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -112,7 +115,6 @@ public partial class MainWindow : Window
 
     private bool _isCurrentlyFrozen = false;
     private DateTime _freezeStartTime;
-    private double _previousVolume = 100;
 
     private string FormatTime(TimeSpan time, bool includeMilliseconds = false)
     {
@@ -314,6 +316,15 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         WireComponents();
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_01 — the document session. Takes its collaborators from the composition
+        // root (COMPOSITION_01). This is legacy window code-behind, so it reads AppServices.Current
+        // rather than receiving them; COMPOSITION_02 governs that shim and its removal.
+        //
+        // The metrics probe is a callback rather than a dependency because the video host is
+        // created later and can be swapped by the detach controller (DETACH_01) — capturing the
+        // live host here would pin the FIRST one for the window's whole life.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         var services = Infrastructure.AppServices.Current;
         _projectSession = new Services.ProjectSession(
             services.Projects,
@@ -323,16 +334,34 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             services.Clock,
             _viewModel,
             ProbeVideoMetricsForProject,
+            // PROJSESSION_08 — the session defers to the window's own "is there anything to lose"
+            // test, which already returns false after a successful export
+            // (ExportedCleanSinceLastEdit) and is what SWITCHPROMPT_01 has always used. Without
+            // this the session prompted to save a render that was already finished.
             HasUnsavedWork,
+            // PROJ_11 — the mask and the merge queue are captured on every edit boundary so the
+            // .fvsproj records the work the user actually did. Both are callbacks for the same
+            // reason the metrics probe is: they read state that outlives and predates this window.
             Infrastructure.LiveMaskCache.ReadNow,
             Services.ToolNavigator.ReadMergeQueue,
+            // EDITHOT_01 — edit ticks, undo/redo and autosave read the mask snapshot, never the
+            // disk and never the machine-wide mutex, on the UI thread.
             readLiveMaskFast: () => Infrastructure.LiveMaskCache.Current);
 
+        // EDITHOT_01 — warm the mask snapshot on the thread pool now, so the first edit already
+        // records the real mask (and an untouched editor stays equal to itself for U4).
         Infrastructure.LiveMaskCache.RequestRefresh();
 
         _projectSession.StateChanged += (_, _) => RefreshProjectTitle();
+        // PROJ_11 — the document is carried through now. It has to be: restoring a project has to
+        // restore the merge queue it recorded, and the handler cannot read that from the
+        // view-models because the queue never lived there.
         _projectSession.DocumentApplied += (_, document) => OnProjectDocumentApplied(document);
 
+        // AUTO-UPDATE — silent, fully-guarded background check a few seconds after the window
+        // settles. Every guard (Settings toggle, dev mode, 24h throttle, strict newer-version
+        // comparison, per-version skip memory) lives inside UpdateService; this hook only
+        // supplies the owner window the prompts need. Fire-and-forget on purpose.
         _recoveryService.WireDocumentSource(
             () => _projectSession!.Capture(forExplicitSave: false),
             BuildRecoveryTransientMetadata);
@@ -429,6 +458,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var cb = MemeComboBoxCtl;
         if (cb == null) return;
 
+        // MEMECOMBO_01 — claimed BEFORE the await, checked after it.
         int generation = Interlocked.Increment(ref _memeScanGeneration);
 
         var scanned = await MemeManagementService.ScanMemesAsync();
@@ -440,6 +470,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
+        // Past this line we are the newest scan and the only writer.
         _memeItems = scanned;
         ApplyMemeItemsToCombo(preserveSelection: true);
 
@@ -447,6 +478,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             string p = _pendingMemeRestorePath;
             _pendingMemeRestorePath = null;
+            // ⚠️ The FullPath-or-filename dual match is load-bearing: the filename arm is what
+            // re-binds a recovered project after the user has moved their meme folder.
             var match = _memeItems.FirstOrDefault(m => string.Equals(m.FullPath, p, StringComparison.OrdinalIgnoreCase)
                                                     || string.Equals(m.FileName, Path.GetFileName(p), StringComparison.OrdinalIgnoreCase));
             if (match != null) cb.SelectedItem = match;
@@ -455,6 +488,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void ApplyMemeItemsToCombo(bool preserveSelection)
     {
+        // MEMECOMBO_01 — MemeDirectory.Changed is a STATIC event with no documented thread
+        // affinity, and this method mutates Avalonia controls. Marshal rather than assume.
         if (!Dispatcher.UIThread.CheckAccess())
         {
             Dispatcher.UIThread.Post(() => ApplyMemeItemsToCombo(preserveSelection));
@@ -469,8 +504,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var prev = preserveSelection ? cb.SelectedItem as MemeItem : null;
         var list = new List<MemeItem>(_memeItems)
         {
-            new MemeItem { IsDownloadAction = true, DownloadCategory = "mp4",  FileName = "Download more meme videos..." },
-            new MemeItem { IsDownloadAction = true, DownloadCategory = "jpeg", FileName = "Download more meme pictures..." },
+            new MemeItem { IsDownloadAction = true, DownloadCategory = MemeCategory.Video, FileName = "Download more meme videos..." },
+            new MemeItem { IsDownloadAction = true, DownloadCategory = MemeCategory.Image, FileName = "Download more meme pictures..." },
         };
         cb.ItemsSource = list;
         if (prev != null && !prev.IsDownloadAction)
@@ -481,12 +516,12 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
     }
 
-    private async Task RunCloudMemeSyncAsync(string category)
+    private async Task RunCloudMemeSyncAsync(MemeCategory category)
     {
-        bool pictures = string.Equals(category, "jpeg", StringComparison.OrdinalIgnoreCase);
-        string label = pictures ? "meme pictures" : "meme videos";
+        string label = MemeCatalog.LabelFor(category);   // MEMECAT_01
+        // A successful download re-scans through MemeDirectory.NotifyChanged (raised inside
+        // DownloadCloudMemesAsync), which every open meme list listens to — no second scan here.
         var (count, error) = await MemeManagementService.DownloadCloudMemesAsync(this, category);
-        PopulateMemeComboBox();
 
         if (error != null)
         {
@@ -503,14 +538,28 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             ShowTacticalFeedback($"You already have all available {label}");
         }
     }
+
+    /// <summary>
+    /// STARTER_01 — first-run delivery of the shipped songs and memes.
+    ///
+    /// MEMEFOLDER_02 — the move of an old <c>Videos\Free Video Studio\Memes</c> folder to
+    /// <c>Videos\FreeVideoStudio\Memes</c> is NOT done here: it runs inside
+    /// <see cref="MemeDirectory.GetActive"/> the first time anything asks for the folder, so the
+    /// scan, a recovery restore and this delivery can never see the folder half-moved.
+    ///
+    /// The combo is populated on window Loaded in parallel with this method. When this method
+    /// actually adds files, the combo is re-scanned afterwards — before, a first launch raced the
+    /// delivery and could show an empty meme list until the app was restarted.
+    /// </summary>
     private async Task PushAssetsAsync()
     {
         try
         {
-            await Task.Run(() => {
+            int delivered = await Task.Run(() => {
                 string musicFolder = Infrastructure.MemeDirectory.GetMusicRoot();
                 string videosFolder = Infrastructure.MemeDirectory.GetVideosRoot();
                 string memeFolder = Infrastructure.MemeDirectory.GetActive();
+                int added = 0;
 
                 if (!Directory.Exists(memeFolder)) Directory.CreateDirectory(memeFolder);
 
@@ -523,43 +572,22 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                         try
                         {
                             string dest = Path.Combine(memeFolder, Path.GetFileName(f));
-                            if (!File.Exists(dest)) File.Copy(f, dest);
+                            if (!File.Exists(dest)) { File.Copy(f, dest); added++; }
                         }
                         catch (System.Exception __ex) { RuntimeLog.Swallowed(__ex); }
                     }
                 }
 
-                Infrastructure.MemeAssets.DeliverStarter("mp3", musicFolder);
-                Infrastructure.MemeAssets.DeliverStarter("mp4", memeFolder);
-                Infrastructure.MemeAssets.DeliverStarter("jpeg", memeFolder);
+                Infrastructure.MemeAssets.DeliverStarter(Infrastructure.MemeAssets.SongCategory, musicFolder);
+                added += Infrastructure.MemeAssets.DeliverStarter(Infrastructure.MemeAssets.MemeCategoryFolder, memeFolder);
+                return added;
             });
+
+            if (delivered > 0) Dispatcher.UIThread.Post(PopulateMemeComboBox);
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("STARTUP", $"Failed to push assets: {ex.Message}");
-        }
-    }
-
-    private void SpeakerIcon_Click(object? sender, RoutedEventArgs e)
-    {
-        ToggleMuteFromSpeakerIcon();
-    }
-
-    private void ToggleMuteFromSpeakerIcon()
-    {
-        var volumeSlider = VolumeSliderCtl;
-        if (volumeSlider != null)
-        {
-            if (volumeSlider.Value > 0)
-            {
-                _previousVolume = volumeSlider.Value;
-                volumeSlider.Value = 0;
-            }
-            else
-            {
-                volumeSlider.Value = _previousVolume > 0 ? _previousVolume : 100;
-            }
-            SaveRecoveryState(label: "mute");
         }
     }
 
@@ -801,7 +829,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 .Where(File.Exists)
                 .OrderByDescending(p => { try { return File.GetLastWriteTimeUtc(p); } catch (System.Exception swallowed5)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
                     return DateTime.MinValue;
                 } })
                 .FirstOrDefault() ?? files[0].Path.LocalPath;
@@ -877,6 +905,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
+        // SIZEESTIMATE_01 — metadata is available before any trim marker has been selected.
         _loadedVideoDurationMs = videoHost.IpcClient.Duration * 1000.0;
         _viewModel.Timeline.LoadedVideoDurationMs = _loadedVideoDurationMs;
         ApplyDefaults();
@@ -892,108 +921,95 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         EnableEditingControls();
 
+        // PROJSESSION_06 — a new clip starts a new history. Ordered BEFORE SaveRecoveryState
+        // because that call now pushes an undo entry, and pushing onto the previous clip's stack
+        // would leave one entry describing footage that is no longer open.
         BeginProjectHistory();
 
         SaveRecoveryState();
 
-        _ = RunAudioLoudnessCheckAsync(path);
+        _ = RunAudioPeakCheckAsync(path);
     }
 
-    /// <summary>The user's answer for THIS video. Null until the probe has finished, in which
-    /// case the export falls back to the stored preference.</summary>
-    private bool? _applyLoudnessNormalization;
+    /// <summary>The user's peak-softening answer for THIS video. Null until the probe has
+    /// finished, in which case the export falls back to the stored preference.</summary>
     private bool? _applyPeakFlattening;
 
-    /// <summary>The uploaded file's measured loudness, kept so the export can anchor the
-    /// voice-over to the game even when the user declined normalisation.</summary>
-    private double? _sourceMeasuredLufs;
+    /// <summary>
+    /// The uploaded file's measured loudness. Used ONLY as a fallback reference for the export's
+    /// peak tamer and meme matching (the export measures its own range first). Nothing normalises
+    /// the gameplay — LOUDSTD_REMOVED_01.
+    /// </summary>
+    private double? _gameplayLoudnessLufs;
 
     /// <summary>Cancels an in-flight probe when a second video is loaded over the first.</summary>
-    private CancellationTokenSource? _loudnessProbeCts;
+    private CancellationTokenSource? _peakProbeCts;
 
-    private async Task RunAudioLoudnessCheckAsync(string path)
+    /// <summary>
+    /// PEAKSAFE_01 — on upload, measure the clip and, if it hides a sudden extreme peak, ask (per
+    /// Settings › "Sudden loud moments") whether the export should soften it.
+    ///
+    /// LOUDSTD_REMOVED_01 — this used to ALSO compare the clip against a -14 LUFS "industry
+    /// standard" and offer to normalise it. That offer did nothing (the normalisation pipeline had
+    /// already been removed) and is gone, with its setting.
+    /// </summary>
+    private async Task RunAudioPeakCheckAsync(string path)
     {
-        try { _loudnessProbeCts?.Cancel(); } catch (System.ObjectDisposedException swallowed8)
+        try { _peakProbeCts?.Cancel(); } catch (System.ObjectDisposedException swallowed8)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed8);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
         }
-        try { _loudnessProbeCts?.Dispose(); } catch (System.ObjectDisposedException swallowed)
+        try { _peakProbeCts?.Dispose(); } catch (System.ObjectDisposedException swallowed)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
         var cts = new CancellationTokenSource();
-        _loudnessProbeCts = cts;
+        _peakProbeCts = cts;
 
-        _applyLoudnessNormalization = null;
         _applyPeakFlattening = null;
-        _sourceMeasuredLufs = null;
+        _gameplayLoudnessLufs = null;
 
         try
         {
             var settings = Infrastructure.SettingsManager.Instance;
 
-            bool nothingToAsk =
-                settings.LoudnessNormalizationPrompt != Infrastructure.AudioFixPrompt.Ask &&
-                settings.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.Ask;
-
-            if (nothingToAsk)
-            {
-                _applyLoudnessNormalization = settings.LoudnessNormalizationPrompt == Infrastructure.AudioFixPrompt.AlwaysApply;
-                _applyPeakFlattening = settings.PeakFlatteningPrompt == Infrastructure.AudioFixPrompt.AlwaysApply;
-
-                if (settings.LoudnessNormalizationPrompt == Infrastructure.AudioFixPrompt.AlwaysApply)
-                    return;
-            }
-
             string ffmpeg = FreeVideoStudio.Core.Infrastructure.BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
             var reading = await FreeVideoStudio.Core.Media.AudioLoudnessProbe
                 .MeasureAsync(ffmpeg, path, cts.Token).ConfigureAwait(true);
 
-            if (cts.IsCancellationRequested) return;
-
-            if (reading == null) return;
-
-            _sourceMeasuredLufs = reading.IntegratedLufs;
-
+            if (cts.IsCancellationRequested || reading == null) return;
             if (!string.Equals(_loadedVideoPath, path, StringComparison.OrdinalIgnoreCase)) return;
+
+            _gameplayLoudnessLufs = reading.IntegratedLufs;
+
+            if (settings.PeakFlatteningPrompt != Infrastructure.AudioFixPrompt.Ask)
+            {
+                _applyPeakFlattening = settings.PeakFlatteningPrompt == Infrastructure.AudioFixPrompt.AlwaysApply;
+                return;
+            }
+
+            if (!reading.HasHarshPeaks) return;
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
-                if (reading.Verdict is FreeVideoStudio.Core.Media.LoudnessVerdict.TooQuiet
-                                    or FreeVideoStudio.Core.Media.LoudnessVerdict.TooLoud)
-                {
-                    _applyLoudnessNormalization = await Controls.AudioFixPromptWindow.ResolveAsync(
-                        this,
-                        settings.LoudnessNormalizationPrompt,
-                        () => Controls.AudioFixPromptWindow.ForLoudness(reading),
-                        pref =>
-                        {
-                            Infrastructure.SettingsManager.Update(s => s.LoudnessNormalizationPrompt = pref);
-                        },
-                        "AudioLoudness");
-                }
-
-                if (reading.HasHarshPeaks)
-                {
-                    _applyPeakFlattening = await Controls.AudioFixPromptWindow.ResolveAsync(
-                        this,
-                        settings.PeakFlatteningPrompt,
-                        () => Controls.AudioFixPromptWindow.ForHarshPeaks(reading),
-                        pref =>
-                        {
-                            Infrastructure.SettingsManager.Update(s => s.PeakFlatteningPrompt = pref);
-                        },
-                        "AudioPeaks");
-                }
+                _applyPeakFlattening = await Controls.AudioFixPromptWindow.ResolveAsync(
+                    this,
+                    settings.PeakFlatteningPrompt,
+                    () => Controls.AudioFixPromptWindow.ForHarshPeaks(reading),
+                    pref =>
+                    {
+                        Infrastructure.SettingsManager.Update(s => s.PeakFlatteningPrompt = pref);
+                    },
+                    "AudioPeaks");
             });
         }
         catch (OperationCanceledException swallowed3)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
-            RuntimeLog.Debug("AudioLoudness", $"Loudness check skipped: {ex.Message}");
+            RuntimeLog.Debug("AudioPeaks", $"Peak check skipped: {ex.Message}");
         }
     }
 
@@ -1060,6 +1076,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (gran != null) gran.IsEnabled = false;
         var voBtn = VoiceOverButtonCtl;
         if (voBtn != null) voBtn.IsEnabled = false;
+        // CUT_02 — cuts belong to the Granular editor now, so there are no buttons to disable
+        // here; the list itself still has to be cleared with the rest of the project state.
         _cuts.Clear();
         
         SaveRecoveryState(label: "clear edits");
@@ -1114,11 +1132,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         _loadedVideoDurationMs = 0;
         _viewModel.Timeline.LoadedVideoDurationMs = 0;
+        // CAPTIONWIPE_01 — a different clip means a different title. See the method above.
         ClearOverlayTextForNextVideo("a different video was loaded");
 
         _speedSegments.Clear();
         _musicWizardResult = null;
         StopMusicPreview();
+        _ = StopPreviewMixPlaybackAsync();
         SetMusicButtonActive(false);
         _trimStartMs = 0;
         _trimEndMs = 0;
@@ -1126,7 +1146,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         _trimEndSet = false;
         _thumbnailSet = false;
         _thumbnailPosMs = 0;
-        UpdateThumbnailButtonState();
+        UpdateThumbnailButtonState();   // THUMB_01
         _freezeTimeMs = -1;
         _freezeDurationS = 1.0;
         ApplyVoiceOverState(null, isRestore: true);
@@ -1134,6 +1154,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var addMemeCb = AddMemeCheckboxCtl;
         if (addMemeCb != null) addMemeCb.IsChecked = false;
 
+        // THUMB_01 — the reset three lines above already put this button back through its one
+        // owner; the hand-rolled duplicate that stood here is gone. Its label also lacked the
+        // surrounding spaces the real one uses, so a reset button sat a few pixels narrower than
+        // the same button in every other state.
         var markStartReset = MarkStartButtonCtl;
         if (markStartReset != null) markStartReset.Content = "MARK START";
         var markEndReset = MarkEndButtonCtl;
@@ -1174,6 +1198,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var qs = QualitySliderCtl;
         if (qs != null && !_qualitySliderInitialized) 
         {
+            // QUALITY_01 — a NEW video starts on the Settings default tier, never on whatever the
+            // last project happened to use. Clamped because a QualityIndex saved by an older build
+            // meant a megabyte step on a 0-20 dial, not a tier on an 0-17 one.
             qs.Value = FreeVideoStudio.App.ViewModels.QualityLadder.ClampIndex(d.QualityIndex);
             _qualitySliderInitialized = true;
         }
@@ -1198,7 +1225,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             catch (System.Exception swallowed9)
             {
                 vol.Value = 100.0;
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed9);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
             }
         }
 
@@ -1209,11 +1236,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         if (teammates != null) teammates.IsChecked = d.ShowTeammates;
 
         var spectating = SpectatingCheckboxCtl;
-        if (spectating != null) spectating.IsChecked = true;
+        if (spectating != null) spectating.IsChecked = true; // SPECTATINGDEFAULT_01
 
         var enableFade = EnableFadeCheckboxCtl;
         if (enableFade != null) enableFade.IsChecked = d.EnableFade;
 
+        // NOMASK_01 — MUST run last. The lines above restore HUD toggle
+        // defaults, which would switch the HUD flags back ON underneath the reserved profile.
         ApplyMaskProfileToOverlayUi();
     }
 
@@ -1552,7 +1581,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         UpdateEstimatedQuality();
         UpdateSpeedLabel();
         SaveRecoveryState(label: "change speed");
-        EndProjectGesture();
+        EndProjectGesture();   // UNDOEQ_02 — a preset click is one discrete step, never part of a dial sweep.
     }
 
     private void SetTimelinePopupsVisible(bool visible)
@@ -1594,24 +1623,15 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         result.TimelineEndSeconds = Math.Clamp(result.TimelineEndSeconds, result.TimelineStartSeconds + 0.5, videoEndSec);
     }
 
-    /// <summary>MASTERVOL_SYNC_01 — suppresses the slider's PropertyChanged echo while the
-    /// slider is being moved programmatically (speaker toggle, restore), mirroring the same
-    /// guard in CropToolWindow.Volume.cs and VideoMergerWindow.VolumeSync.cs.</summary>
-    private bool _isSyncingMasterVolume = false;
+    private void AdjustPreviewMasterVolume(int delta) => Infrastructure.MasterVolumeUi.Nudge(delta);
 
-    private void ApplyMasterVolume(int masterVolumePercentage)
-    {
-        FreeVideoStudio.Core.Media.MpvIpcClient.SetGlobalMasterVolume(masterVolumePercentage);
-    }
-
-    private void AdjustPreviewMasterVolume(int delta)
-    {
-        var slider = VolumeSliderCtl;
-        if (slider != null)
-            slider.Value = Math.Clamp(slider.Value + delta, slider.Minimum, slider.Maximum);
-    }
-
-    private void OnGlobalMasterVolumeChanged(int masterVolumePercentage)
+    /// <summary>
+    /// AUD-MASTERVOL — re-applies the suite master to this window's players: the gameplay player with
+    /// the Music Wizard VIDEO fader, the music player with the MUSIC fader (both LINEAR, as exported;
+    /// the master's level/mute/curve is added by ApplyPreviewGainAsync). Runs after every master
+    /// change from ANY window (VOLSHARED_01) and after the Music Wizard returns.
+    /// </summary>
+    private void ApplyPreviewPlayersVolume()
     {
         double videoBase = 1.0;
         double musicBase = 1.0;
@@ -1622,18 +1642,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             musicBase = _musicWizardResult.MusicVolume;
         }
 
-        double effectiveVideoVol = masterVolumePercentage * videoBase;
-        double effectiveMusicVol = masterVolumePercentage * musicBase;
-
-        if (ActiveVideoHost?.IpcClient != null)
-        {
-            _ = ActiveVideoHost.IpcClient.SetPreviewVolumeAsync(effectiveVideoVol);
-        }
-
-        if (_musicPreviewIpcClient != null)
-        {
-            _ = _musicPreviewIpcClient.SetPreviewVolumeAsync(effectiveMusicVol);
-        }
+        _ = ActiveVideoHost?.IpcClient?.ApplyPreviewGainAsync(videoBase * PreviewGameDuckGain());
+        _ = _musicPreviewIpcClient?.ApplyPreviewGainAsync(musicBase * PreviewMusicDuckGain());
+        ApplyPreviewMixVolume();   // PREVIEWMIX_01 — the rendered mix carries only the master
     }
 
     private void EnsureTrimPointsSet()
@@ -1713,18 +1724,37 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void PlaybackTimerTickCore()
     {
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // MEME_07 — BEFORE EVERYTHING ELSE ON THIS TICK, INCLUDING THE CUT SKIP.
+        //
+        // While a meme cutaway is on screen the ONE mpv host is showing the MEME, so CurrentTime,
+        // Duration and IsEof all describe that file. Every line below this point would then be
+        // reasoning about the wrong clock: the cut skip would seek somewhere arbitrary, the music
+        // would resync to a meaningless position, the timeline slider would fly to the wrong
+        // place, and the eof handler would pause the video for good at the end of the meme.
+        // Returning early is what keeps all of that correct, and it is why the director owns the
+        // whole cutaway rather than each of these features knowing about memes separately.
+        // ══════════════════════════════════════════════════════════════════════════════════
         if (_memePlacements.Count > 0) EnsureMemePreviewDirector();
         if (_memePreview != null)
         {
             _memePreview.SetMemes(_memePlacements);
             _memePreview.Tick();
-            if (_memePreview.IsActive) return;
+            if (_memePreview.IsActive) { _cornerMemes?.Hide(); return; }   // MEMEMODE_01 — a cutaway hides the corner meme
         }
+        UpdateCornerMemeOverlay();   // MEMEMODE_01 — simultaneous, never pauses/seeks/swaps the player
 
+        // CUT_01 — SKIP, DO NOT PLAY THROUGH. When playback wanders into deleted footage the
+        // player is seeked past it in ONE jump, so the user never watches frames that are not in
+        // their video. Fire-and-forget on purpose: the seek is asynchronous and this tick must
+        // never block the UI thread waiting on mpv (ZOOMHANG_01 — no unbounded wait may cross
+        // between the render thread and the UI thread, in either direction).
         if (_cuts.Count > 0) _ = SkipPlayheadOutOfCutAsync();
 
         if (ActiveVideoHost?.IpcClient == null) return;
 
+        // THUMB_01 — the button's label depends on where the playhead is, so it has to follow it.
+        // Cheap by construction: it only writes when the text actually changes.
         UpdateThumbnailButtonState();
 
         UpdateLiveZoomCrop();
@@ -1751,11 +1781,41 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         bool videoEnded = ActiveVideoHost.IpcClient.IsEof || (dur > 0 && time >= dur - 0.05);
 
+        // MUSICSYNC_01/02 — music bed and voice-over takes follow the video in OUTPUT time
+        // (MainWindow.PreviewAudio.cs). Music always plays at 1.0x; drift is corrected by seeking.
         UpdateMusicPreview(time, videoEnded);
         UpdateVoiceOverPreview(time, videoEnded);
+        UpdatePreviewMix(time, videoEnded);   // PREVIEWMIX_01
 
         double currentAbsMs = time * 1000.0;
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // FREEZE_01 — A FREEZE FIRES ONCE PER PASS. THIS IS THE "ONE FRAME, THEN PAUSED" TRAP.
+        //
+        // The trigger is a 150 ms WINDOW around the anchor, and there was no record of having
+        // already fired inside it. The hold PAUSES the player, so while it runs the clock does not
+        // advance at all; when it releases, playback resumes for exactly one tick before this test
+        // runs again — and one tick of real playback moves the position by a single frame, ~16-33 ms.
+        // The window is 150 ms wide. So every release re-entered the same window and re-froze:
+        //
+        //     freeze -> hold _freezeDurationS -> play ONE FRAME -> still inside the window -> freeze
+        //
+        // Five to nine round trips to crawl 150 ms, each costing a full hold. To the user the play
+        // button advances a single frame and pauses itself, over and over, with no way out — which
+        // is exactly how it was reported, and why it shows up after touching a marker: parking the
+        // playhead on or just before the freeze anchor is what puts you inside the window to begin
+        // with.
+        //
+        // `_lastFreezeTriggerMs` is the same guard the Voice Over studio has carried all along
+        // (VoiceOverWindow._lastFreezeTriggerMs); the main screen simply never got it. It records
+        // WHICH anchor was consumed, so moving the freeze to a new time re-arms it for free.
+        //
+        // RE-ARMING has to be deliberate, not automatic:
+        //   * leaving the window (with real clearance, so a frame of jitter cannot re-arm it) — the
+        //     user has played past the freeze and a later pass should hold again;
+        //   * any explicit seek (SeekInternal) — a scrub is a new pass over the timeline.
+        // ⚠️ Do NOT re-arm merely because playback resumed. That is the loop this removes.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         if (_freezeTimeMs >= 0 && !_isCurrentlyFrozen && !ActiveVideoHost.IpcClient.IsPaused)
         {
             bool insideFreezeWindow = currentAbsMs >= _freezeTimeMs && currentAbsMs <= _freezeTimeMs + 150;
@@ -1773,6 +1833,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 return;
             }
 
+            // Clear of the window by a real margin: the next approach is a new pass.
             if (!insideFreezeWindow &&
                 (currentAbsMs < _freezeTimeMs - 250 || currentAbsMs > _freezeTimeMs + 400))
             {
@@ -1823,6 +1884,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             if (timeRemaining != null) timeRemaining.Text = "-" + FormatTime(TimeSpan.FromSeconds(Math.Max(0, dur - displayTime)));
         }
 
+        // MAINEND_01 — park ONCE at the end, then leave the player alone.
+        // Re-issuing this every tick is what let an end-of-file stop outlive the condition that
+        // caused it and override the user's next PLAY (see TogglePlayPauseTransport).
         if (ActiveVideoHost.IpcClient.IsEof)
         {
             if (!_mainEndParkIssued)
@@ -1885,7 +1949,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         return _baseSpeed;
     }
 
-    private async void InitializeMpv() => await StartVideoHostAsync();
+    private async void InitializeMpv() => await StartVideoHostAsync();   // TOOLRETURN_01 — body in MainWindow.ToolReturn.cs
 
     private void OnSeekCompleted()
     {
@@ -1947,6 +2011,22 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // MAINEND_01 — THE END OF THE CLIP IS A STOP, AND THE NEXT PRESS IS A RESTART.
+    //
+    // Both play routes (the PlayPauseButton handler and the keyboard toggle) used to do the same
+    // bare thing: SetPropertyAsync("pause", IsPaused ? "no" : "yes"). Parked on the last frame that
+    // unpauses a player with nothing left to play, and the tick's end-of-file guard stops it again
+    // on the next pass — one frame forward, then paused, indefinitely.
+    //
+    // MPVEOF_01 fixes the stale flag that made the guard fire when it should not have. This is the
+    // other half: even with a correct flag, "play" at the end has to MEAN something, and what it
+    // means is "watch it again from MARK START" — the same rule the Voice Over studio follows
+    // (VOEND_01) and the same place RETURN_01 parks the playhead when a sub-editor closes.
+    //
+    // ⚠️ BOTH CALLERS MUST ROUTE THROUGH HERE. A second bare SetPropertyAsync("pause","no") on a
+    // play path reintroduces the trap on whichever control skipped it.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>MAINEND_01 — the last playable second: MARK END when trimmed, else the duration.</summary>
     private double MainTimelineEndSeconds()
@@ -1978,6 +2058,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         var ipc = ActiveVideoHost?.IpcClient;
         if (ipc == null) return;
 
+        // A freeze hold is its own state and is cleared, not played through. Unchanged behaviour.
         if (_isCurrentlyFrozen)
         {
             _isCurrentlyFrozen = false;
@@ -2022,6 +2103,20 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// </summary>
     private double _lastFreezeTriggerMs = -1;
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // TRANSPORT_TRACE_01 — EVERY PLAY/PAUSE THE MAIN WINDOW ISSUES, NAMED, WITH THE STATE THAT
+    // CAUSED IT.
+    //
+    // The "play advances one frame and pauses itself" trap has now survived three separate
+    // fixes, each aimed at a mechanism that static reading said was sufficient. It is not
+    // reproducible from source alone, so it stops being diagnosed from source: every pause and
+    // every play the main window issues now writes one line saying WHO issued it and what the
+    // player state was at that instant. One reproduction names the culprit exactly.
+    //
+    // Cost is a formatted string per transport change — not per tick — so this is cheap enough
+    // to leave in permanently, and valuable enough to be worth it: this is the log a user can
+    // send that turns "it feels stuck" into a line number.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     private void TransportTrace(string who, string action)
     {
         try
@@ -2048,8 +2143,11 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return;
         }
 
+        // FREEZE_01 — a seek is a new pass over the timeline, so the freeze is armed again.
+        // This is what makes "drag the playhead back before the freeze and play" hold a second
+        // time, while a freeze the playback has just served does not re-fire on the spot.
         _lastFreezeTriggerMs = -1;
-        _mainEndParkIssued = false;
+        _mainEndParkIssued = false;   // MAINEND_01 — and it is no longer parked at the end
 
         _isSeeking = true;
         try {
@@ -2134,7 +2232,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             try { pointer?.Capture(null); } catch (System.Exception swallowed10)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed10);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
             }
             UpdateTimelineMarkers();
             SaveRecoveryState(label: "drag marker");
@@ -2157,6 +2255,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     {
         _mainSizeWorker?.Dispose();
         StopMusicPreview();
+        _ = StopPreviewMixPlaybackAsync();
         if (_isSafeToClose)
         {
             base.OnClosing(e);
@@ -2165,6 +2264,18 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         e.Cancel = true;
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // PROJSESSION_07 — ASK BEFORE DISCARDING THE DOCUMENT.
+        //
+        // Placed after `e.Cancel = true` and BEFORE MarkCleanShutdownIntent and the teardown
+        // below, because all three are irreversible: the shutdown intent suppresses the next
+        // launch's crash-recovery prompt, and the teardown disposes the pipeline this window
+        // would need to keep working if the user says "stay".
+        //
+        // Returning here leaves the window cancelled-but-alive, which is exactly the state the
+        // deferred-close contract (05 §3) produces between its two turns — _isSafeToClose is
+        // never set, Close() is never re-posted, and the window simply carries on.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         if (!await ConfirmProjectDiscardOnCloseAsync())
         {
             RuntimeLog.Info("UI", "Close cancelled — the user chose to keep unsaved project work.");
@@ -2182,10 +2293,13 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 try { _processCts.Cancel(); }
                 catch (ObjectDisposedException swallowed4)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
                 }
             }
 
+            // EXPORTSESSION_01 — give the pipeline a bounded moment to actually stop before the
+            // window tears down the objects it is using. Without this, closing mid-export raced
+            // ProcessWorker's teardown against MpvVideoView's disposal.
             if (_exportInFlight != null)
             {
                 await Task.WhenAny(_exportInFlight, Task.Delay(3000));
@@ -2240,6 +2354,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
         try { _musicPreviewIpcClient?.Dispose(); }
         catch (Exception ex) { RuntimeLog.Fail("UI", $"Music preview teardown reported: {ex.Message}"); }
+        DisposePreviewMix();
     }
 
     protected override void OnClosed(EventArgs e)
@@ -2251,7 +2366,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         base.OnClosed(e);
         SingleInstanceGuard.VideoPathReceived -= OnVideoHandedOffFromAnotherLaunch;
         SingleInstanceGuard.Release();
-        FreeVideoStudio.Core.Media.MpvIpcClient.GlobalMasterVolumeChanged -= OnGlobalMasterVolumeChanged;
         DisposeVoiceOverPreviewTakes();
         ShutdownVideoPipelineForProcessExit();
         Environment.Exit(0);
@@ -2424,11 +2538,11 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         {
             try { take.Player.Dispose(); } catch (System.Exception swallowed2)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             }
             try { take.Reader.Dispose(); } catch (System.Exception swallowed7)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
             }
         }
         _voiceOverPreviewTakes.Clear();
@@ -2453,7 +2567,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             {
                 try { System.IO.File.Delete(oldResult.VoiceOverWavPath); } catch (System.Exception swallowed6)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
                 }
             }
             if (oldResult.VoiceOverTakes != null)
@@ -2464,7 +2578,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     {
                         try { System.IO.File.Delete(take.Path); } catch (System.Exception swallowed11)
                         {
-                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed11);
+                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed11);   // FAULTTIER_02 — no failure is silent.
                         }
                     }
                 }
@@ -2491,7 +2605,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     try
                     {
                         var reader = new FreeVideoStudio.Core.Media.WavAudioReader(take.Path);
-                        var player = Infrastructure.PreviewAudioSync.CreateVoicePlayer();
+                        var player = Infrastructure.PreviewAudioSync.CreateVoicePlayer();   // MUSICSYNC_02
                         player.Init(reader);
                         _voiceOverPreviewTakes.Add(new VoiceOverPreviewTake
                         {
@@ -2526,6 +2640,10 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private void InvalidateVoiceOverRecordingForTimingChange()
     {
+        // MUSICSYNC_01 — nothing to invalidate any more. Preview timing is read through
+        // TimelineViewModel.PreviewSourceToOutputSeconds, whose OutputTimeline rebuilds itself
+        // whenever trim, speed, segments, freeze or cuts change. (The old cached mapper missed
+        // cut and trim edits entirely, and ignored cuts even when fresh.)
         if (!HasVoiceOverWav(_voiceOverResult)) return;
     }
 
@@ -2596,6 +2714,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             return true;
         }
 
+        // The message names what is actually at risk and what actually happens, in that order. It
+        // does NOT say "you will lose your work", because the hand-off saves the project first and
+        // brings it straight back — overstating the risk is how a prompt earns a reflex click.
         bool go = await Controls.ConfirmDialogWindow.AskAsync(
             this,
             $"{toolDisplayName} opens in place of this window, so the editor closes while you are in it.\n\n" +
@@ -2611,6 +2732,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
 
     private async Task SwitchToCompanionAppAsync(string argument, string toolDisplayName)
     {
+        // SWITCHPROMPT_01 — the one gate, in the one place both entry points funnel through, so a
+        // future third caller cannot forget it.
         if (!await ConfirmToolSwitchAsync(toolDisplayName)) return;
 
         ShowCompanionHandoffOverlay(toolDisplayName);
@@ -2621,6 +2744,21 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                 ? new Services.CropToolLaunchContext(_loadedVideoPath, _trimStartMs, _trimEndMs)
                 : new Services.MergerLaunchContext();
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // TOOLNAV_01 — IN-PROCESS. This used to be CompanionAppService.SwitchToCompanionAppAsync,
+        // which ended with Environment.Exit(0): the application killed itself and relaunched its
+        // own executable with a different flag. The user saw the app disappear from the taskbar
+        // and a different window appear, and everything not in the handoff payload — the loaded
+        // clip's undo history, the document session, window focus and z-order — was gone.
+        //
+        // Now the tool opens as a window in this process and the editor is HIDDEN behind it
+        // (TOOLNAV_03), so the session is exactly where the user left it when they come back.
+        //
+        // MarkCleanShutdownIntent is NO LONGER CALLED here, and that is the point: the process is
+        // not shutting down. Marking it would suppress the next launch's crash-recovery prompt for
+        // a session that is still running, which is the same wrong-state defect the flag beside
+        // _exportedCleanSinceLastEdit was added to fix.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         var navigator = new Services.ToolNavigator(Infrastructure.AppServices.Current.Faults);
 
         bool opened = await navigator.OpenAsync(
@@ -2633,6 +2771,8 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             restoreVideoPipeline: RestoreVideoPipelineAfterTool,
             onToolReturned: OnToolNavigationResult);
 
+        // The overlay is a "we are leaving" card. We are not leaving any more, so it comes down
+        // either way — on success the tool window is already in front of it.
         HideCompanionHandoffOverlay();
 
         if (!opened) RuntimeLog.Info("UI", $"{toolDisplayName} was not opened; the editor is unchanged.");
@@ -2812,6 +2952,18 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
         catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // CUT_01 — DELETE A SECTION FROM THE MIDDLE OF THE CLIP.
+    //
+    // A cut is the mirror image of a freeze: a freeze consumes no source time and occupies output
+    // time; a cut consumes source time and occupies NONE. All of the real work lives in
+    // OutputTimeline and GranularSpeedBuilder, which already splice the timeline for slow-motion,
+    // freezes and memes. This screen only collects the ranges.
+    //
+    // Cuts are stored in ABSOLUTE SOURCE MILLISECONDS, exactly like _trimStartMs and
+    // SpeedSegment.StartMs, so they survive a trim change and convert cleanly at the export
+    // boundary via CutRange.ToClipRelative.
+    // ══════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// MEME_06 — memes spliced into the middle of the video, in CLIP-RELATIVE SOURCE seconds.
@@ -2843,6 +2995,9 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
             SetMemeSwapOverlay,
             "MEME");
 
+        // The agreed behaviour: the meme's own sound plays, and the background music pauses with
+        // the gameplay and carries on afterwards. The tick restarts the music on its own once the
+        // gameplay is back, so only the stop side needs saying here.
         _memePreview.MemeStarted += StopMusicPreview;
     }
 
@@ -2869,7 +3024,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     private async Task AfterCutsChangedAsync()
     {
         NormalizeCutsInPlace();
-        DropMemesInsideCuts();
+        DropMemesInsideCuts();   // MEME_06
         UpdateTimelineMarkers();
         UpdateEstimatedQuality();
         SaveRecoveryState(label: "edit cuts");
@@ -2919,7 +3074,7 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
                     RuntimeLog.Info("CUT", $"Playhead was inside a deleted section; skipping to {toSec:F2}s.");
                     await client.SendCommandAsync("seek",
                         toSec.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), "absolute");
-                    _memePreview?.NotifySeek();
+                    _memePreview?.NotifySeek();   // MEME_07 — a jump, not playback
                     return;
                 }
             }
@@ -2935,29 +3090,6 @@ private readonly RecoveryManager _recovery = new RecoveryManager();
     /// </summary>
     private void InitializeUxInnovations()
     {
-
-        var memeWall = this.FindControl<Controls.MemeWallControl>("MemeWall");
-        if (memeWall != null)
-        {
-            memeWall.MemeSelected += (path) =>
-            {
-                var cb = MemeComboBoxCtl;
-                var addMemeCb = AddMemeCheckboxCtl;
-                if (cb != null)
-                {
-                    var match = _memeItems.FirstOrDefault(m =>
-                        string.Equals(m.FullPath, path, StringComparison.OrdinalIgnoreCase));
-                    if (match != null)
-                    {
-                        cb.SelectedItem = match;
-                        if (addMemeCb != null) addMemeCb.IsChecked = true;
-                        SaveRecoveryState(label: "choose meme");
-                        TriggerParticleBurst(new Point(Bounds.Width / 2, Bounds.Height / 2),
-                            Controls.ParticleBurstCanvas.BurstPreset.TogglePop);
-                    }
-                }
-            };
-        }
 
         _kineticScrub = new KineticScrubController();
         _kineticScrub.SeekRequested += (ms) =>

@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -67,7 +73,7 @@ public partial class VideoMergerWindow
                 dlg.SetMessage((rows.Count == 1 ? "Remove the selected clip from the queue?" : $"Remove the {rows.Count} selected clips from the queue?")
                                + "\nThe files on your computer are not touched. Ctrl+Z brings them back.");
                 dlg.SetButtonText("YES, REMOVE", "CANCEL");
-                dlg.UseDestructiveStyling();
+                dlg.UseDestructiveStyling();   // REMOVEUX_01 — a destructive answer is red and never the Enter key
                 await dlg.ShowDialog(this);
                 if (!dlg.Result) return;
             }
@@ -113,15 +119,15 @@ public partial class VideoMergerWindow
         var infos = new List<MergeClipInfo>(queue.Count);
         foreach (var p in queue)
         {
-            if (!MergeClipAnalyzer.TryGetCompleted(p, out var info)) return;
+            if (!MergeClipAnalyzer.TryGetCompleted(p, out var info)) return;   // a new clip: the background path handles it
             infos.Add(info);
         }
         if (_thumbPath != null && !queue.Any(p => SameVideoPath(p, _thumbPath))) _thumbPath = null;
 
-        _timelineVersion++;
+        _timelineVersion++;   // supersede the background rebuild queued for this same change
         var sources = infos.Select(i => new MergeClipSource(i.Path, i.DurationSec, i.IntroSec)).ToList();
         ApplyTimeline(MergedTimeline.Build(sources, _scraperEnabled, _thumbPath != null), infos.Select(i => i.IntroSec).ToList());
-        RefreshLanes();
-        RedrawTimelineSelection();
+        RefreshLanes();              // cached tiles paint immediately; the rest keeps building in the background
+        RedrawTimelineSelection();   // the timeline blocks and ants follow the new order at once
     }
 }

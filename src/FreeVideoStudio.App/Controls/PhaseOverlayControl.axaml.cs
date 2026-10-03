@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
@@ -97,7 +100,7 @@ public partial class PhaseOverlayControl : UserControl
             try { return GetParentWindow()?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero; }
             catch (System.Exception swallowed)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                 return IntPtr.Zero;
             }
         }
@@ -115,6 +118,8 @@ public partial class PhaseOverlayControl : UserControl
         _memHist.Clear();
         _logLines.Clear();
         
+        // TELEMETRY_01 — restart semantics unchanged: a previously running nvidia-smi child is
+        // stopped before a new one is started. Non-throwing, as before.
         _telemetry.Start();
         
         var txt = LiveLogTextBoxCtl;
@@ -284,6 +289,8 @@ public partial class PhaseOverlayControl : UserControl
 
         RuntimeLog.LogAppended -= AppendLog;
         
+        // TELEMETRY_01 — was a bare Kill() here and a Kill(entireProcessTree: true) at the start
+        // site: two different teardowns for the same child. One path now, bounded and confirmed.
         _telemetry.Stop();
     }
     /// <summary>
@@ -2282,6 +2289,11 @@ public partial class PhaseOverlayControl : UserControl
 
     private void OnTick(object? sender, EventArgs e)
     {
+        // TELEMETRY_01 — SKIP THE TICK RATHER THAN OVERLAP IT. This fired Task.Run unguarded, and
+        // the CPU reading is a read-modify-write against the previous sample: two ticks in flight
+        // at once both measured against a baseline the other had already advanced, producing a
+        // nonsense percentage on the gauge. The pool is most likely to be busy enough to delay a
+        // tick during a heavy export — exactly when this overlay is on screen.
         if (!_telemetry.TryBeginSample()) return;
 
         Task.Run(() =>
@@ -2293,6 +2305,8 @@ public partial class PhaseOverlayControl : UserControl
             }
             finally
             {
+                // Released as soon as the SAMPLE is done. The UI update below only touches
+                // UI-thread state, so it is not part of what the gate protects.
                 _telemetry.EndSample();
             }
 
@@ -2336,6 +2350,9 @@ public partial class PhaseOverlayControl : UserControl
         });
     }
 
+    // TELEMETRY_01 — GetCpuUsage / GetMemUsage / GetGpuUsage, the two kernel32 P/Invokes and the
+    // FILETIME / MEMORYSTATUSEX structs moved verbatim into HardwareTelemetrySampler, which now
+    // owns the counters they mutate. Neither struct had a single reference outside this file.
 }
 
 public class HardwareGraphControl : Control

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using NAudio.Wave;
 using System;
 using FreeVideoStudio.Core.Infrastructure;
@@ -71,6 +74,8 @@ public sealed class MicLevelMonitor : IDisposable
             }
             catch (Exception ex)
             {
+                // Not fatal and not worth a modal: the meter simply stays still, and recording is
+                // still attempted normally when the user presses record.
                 CoreLogger.Warn("MicMonitor", $"Could not open device {device} for monitoring: {ex.Message}");
                 StopCore();
             }

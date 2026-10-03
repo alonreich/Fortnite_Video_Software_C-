@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -88,15 +94,6 @@ public sealed class OutputTimeline
         /// <summary>Either kind of block that adds output time without advancing the source.</summary>
         public bool HoldsSource => Math.Abs(Speed) < 0.001 && !IsCut;
 
-        /// <summary>
-        /// CUT_01 — REMOVED footage. The exact mirror image of a freeze: a freeze consumes no
-        /// source time and occupies output time, a cut consumes source time and occupies NONE.
-        /// It is kept in the chunk list rather than deleted so the timeline can still answer
-        /// "is this source moment gone?" and "where does the footage resume?" — the preview and
-        /// the export both need that, and so does every ruler drawn against source time.
-        /// </summary>
-        public bool IsCutChunk => IsCut;
-
         /// <summary>How many seconds of FINISHED video this chunk occupies.</summary>
         public double OutputLengthSec =>
             IsCut ? 0.0 : (HoldsSource ? FreezeHoldSec : (SourceEndSec - SourceStartSec) / Speed);
@@ -141,9 +138,6 @@ public sealed class OutputTimeline
     /// This is the number every ruler in the application should be drawn against.
     /// </summary>
     public double TotalOutputSeconds { get; }
-
-    /// <summary>Trim-in point in seconds — the offset between absolute and clip-relative source time.</summary>
-    public double SourceCutStartSeconds => _originSec;
 
     public IReadOnlyList<Chunk> Chunks => _chunks;
 
@@ -215,6 +209,10 @@ public sealed class OutputTimeline
         if (currentSec < totalDurationSec - 0.001)
             sourceChunks.Add((currentSec, totalDurationSec, baseSpeed, false));
 
+        // CUT_01 — normalise the cut list ONCE, here, so every consumer downstream sees the same
+        // clean set: clip-relative, clamped, ordered, overlaps and near-touching pairs merged, and
+        // sub-frame slivers dropped. Doing this at construction is what lets the rest of the method
+        // treat cuts as simple non-overlapping holes.
         var normalizedCuts = NormalizeCuts(cuts, totalDurationSec);
 
         var chunks = new List<Chunk>();
@@ -234,6 +232,10 @@ public sealed class OutputTimeline
             return at;
         }
 
+        // CUT_01 — every source range that reaches the chunk list flows through here, so this is
+        // the one place that has to know about holes. A range overlapping a cut is emitted as
+        // [surviving][cut][surviving], keeping the chunks in strict source order, which is the
+        // invariant SourceToOutput and OutputToSourceRelative both walk on.
         void AppendSourceRange(double rangeStart, double rangeEnd)
         {
             foreach (var sc in sourceChunks)
@@ -270,6 +272,9 @@ public sealed class OutputTimeline
             double fEnd = Math.Max(fStart, freeze.end);
             if (fEnd <= sourceCursor + 0.001) continue;
 
+            // CUT_01 — a freeze whose held frame was deleted has no frame to hold. Dropping it is
+            // the only coherent answer: keeping it would hold a frame the user removed, and
+            // snapping it elsewhere would silently move an effect they placed deliberately.
             if (InsideCut(fStart)) continue;
 
             if (fStart > sourceCursor + 0.001)
@@ -292,6 +297,9 @@ public sealed class OutputTimeline
                 if (ins.DurationSec <= 0.001) continue;
                 double at = Math.Max(0, Math.Min(ins.AtSourceSec, totalDurationSec));
 
+                // CUT_01 — unlike a freeze, a meme is FOREIGN footage: it does not depend on the
+                // frame underneath it, so a cut cannot invalidate it. Slide it to the join instead
+                // of dropping it, and the user keeps their meme at the nearest surviving moment.
                 at = PushPastCut(at);
 
                 for (int i = 0; i < chunks.Count; i++)
@@ -326,7 +334,7 @@ public sealed class OutputTimeline
     /// Merging is not cosmetic. Two cuts separated by a 0.1s sliver would leave that sliver as its
     /// own chunk, which costs a whole parallel branch in the export graph and shows up as a
     /// one-frame flash nobody wanted. Overlapping cuts must merge for a harder reason: the chunk
-    /// walk in <see cref="AppendSourceRangeDoc"/> assumes holes never overlap, and two overlapping
+    /// walk inside <see cref="Create"/> assumes holes never overlap, and two overlapping
     /// holes would emit chunks out of source order and corrupt every mapping built on them.
     ///
     /// Public and static so the UI can run the SAME normalisation while the user is still dragging,
@@ -369,9 +377,6 @@ public sealed class OutputTimeline
         return result;
     }
 
-    /// <summary>Doc anchor only — see the chunk-splitting loop inside <see cref="Create"/>.</summary>
-    private static void AppendSourceRangeDoc() { }
-
     /// <summary>Clamps an ABSOLUTE source position into clip-relative seconds.</summary>
     public double ToClipRelative(double absSourceSec)
     {
@@ -390,6 +395,11 @@ public sealed class OutputTimeline
 
         foreach (var ch in _chunks)
         {
+            // CUT_01 — a cut adds ZERO output time. If the requested moment is before the cut we
+            // are done; if it is at, inside, or past it, the cut contributes nothing and we carry
+            // on. A moment INSIDE a cut therefore maps to the join — the instant of finished video
+            // where the footage resumes — which is the only sensible answer for a deleted frame,
+            // and is what makes voice-overs and memes land correctly across a cut for free.
             if (ch.IsCut)
             {
                 if (target <= ch.SourceStartSec) break;
@@ -443,6 +453,10 @@ public sealed class OutputTimeline
 
         foreach (var ch in _chunks)
         {
+            // CUT_01 — a cut occupies no output time, so no output position can land in it. Without
+            // this skip, a query landing exactly on the join (target == acc) would match the cut's
+            // zero-length window and return the deleted footage's start instead of the frame that
+            // actually plays there.
             if (ch.IsCut) continue;
 
             double outLen = ch.OutputLengthSec;
@@ -469,7 +483,7 @@ public sealed class OutputTimeline
 
         foreach (var ch in _chunks)
         {
-            if (ch.IsCut) continue;
+            if (ch.IsCut) continue;   // CUT_01 — zero output length, never the chunk on screen.
 
             double outLen = ch.OutputLengthSec;
             if (target <= acc + outLen) return ch.IsFreeze;
@@ -491,7 +505,7 @@ public sealed class OutputTimeline
 
         foreach (var ch in _chunks)
         {
-            if (ch.IsCut) continue;
+            if (ch.IsCut) continue;   // CUT_01 — zero output length, never the chunk on screen.
 
             double outLen = ch.OutputLengthSec;
             if (target <= acc + outLen) return ch.InsertionId;
@@ -510,6 +524,9 @@ public sealed class OutputTimeline
     {
         double at = Math.Clamp(sourceRelSec, 0, _totalSourceSec);
 
+        // CUT_01 — clear any hole FIRST. A point inside deleted footage is not a place a meme can
+        // sit, and pushing it out before the segment check means the segment snap below then works
+        // on a point that actually survives.
         at = NextSurvivingSource(at);
 
         foreach (var ch in _chunks)
@@ -533,6 +550,10 @@ public sealed class OutputTimeline
         return false;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // CUT_01 — the public cut surface. Everything above answers questions about time; these
+    // answer questions about ABSENCE, which is what the marker UI and the preview both need.
+    // ══════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>The normalised cuts this timeline was built with, clip-relative and non-overlapping.</summary>
     public IReadOnlyList<Cut> Cuts => _cuts;
@@ -626,7 +647,7 @@ public sealed class OutputTimeline
 
         foreach (var ch in _chunks)
         {
-            if (ch.IsCut) continue;
+            if (ch.IsCut) continue;   // zero output length; contributes nothing to the accumulator
 
             double outLen = ch.OutputLengthSec;
             if (ch.IsInsertion && ch.InsertionId != null)

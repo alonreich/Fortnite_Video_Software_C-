@@ -36,7 +36,6 @@
              ══════════════════════════════════════════════════════════════════════════════════ -->
         <Color x:Key="AppZoomColor">#2251c1</Color>
         <SolidColorBrush x:Key="AppZoomBrush" Color="{StaticResource AppZoomColor}" />
-        <SolidColorBrush x:Key="AppZoomHoverBrush" Color="#1c449c" />
 
         <!-- ══════════════════════════════════════════════════════════════════════════════════
              ZOOMANTS_01 — THE MARCHING-ANTS YELLOW, AND WHY IT IS A DELIBERATE EXCEPTION.
@@ -56,7 +55,6 @@
              they must not follow the Light/Dark dictionaries. Same reasoning as AppZoomColor.
              ══════════════════════════════════════════════════════════════════════════════════ -->
         <Color x:Key="AppZoomAntsColor">#fde047</Color>
-        <SolidColorBrush x:Key="AppZoomAntsBrush" Color="{StaticResource AppZoomAntsColor}" />
 
         <!-- ══════════════════════════════════════════════════════════════════════════════════
              MEME_06 — THE MEME COLOUR, and it follows AppZoomColor's rule exactly.

@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
@@ -64,7 +66,7 @@ internal static class UpgradeInstallWorker
             payload.Position = 0;
             InstallDiscovery.EnsureSpace(InstallDiscovery.Destination, roots, checked(unpacked * 2));
             string extracted = Path.Combine(transaction.DirectoryPath, "payload");
-            InstallPayload.Extract(payload, extracted, InstallDiscovery.Destination);
+            InstallPayload.Extract(payload, extracted, InstallDiscovery.ReuseRoot(roots));   // NOSPACE_01
             transaction.Prepare(candidate =>
             {
                 foreach (string file in UpgradeFiles.Files(extracted))
@@ -162,10 +164,14 @@ internal static class UpgradeInstallWorker
             string path = Path.Combine(directory, "journal.json");
             if (!File.Exists(path)) continue;
             JsonObject journal = AtomicJsonFile.ReadObject(path) ?? throw new IOException("An installation recovery record is unreadable. Backups were preserved.");
-            var roots = journal["Originals"]!.AsArray().Select(x => x!["Path"]!.GetValue<string>())
-                .Append(InstallDiscovery.Destination).ToArray();
-            if (journal["Destination"]!.GetValue<string>() != InstallDiscovery.Destination)
+            // NOSPACE_01 — journals written before the move to the space-free folder name the spaced
+            // folder as their destination. They are still ours and must still recover and prune;
+            // rejecting them would block every future install on that machine.
+            string destination = UpgradeFiles.FullPath(journal["Destination"]!.GetValue<string>());
+            if (!InstallDiscovery.KnownDestinations.Contains(destination, StringComparer.OrdinalIgnoreCase))
                 throw new IOException("Unexpected destination in protected installation journal.");
+            var roots = journal["Originals"]!.AsArray().Select(x => x!["Path"]!.GetValue<string>())
+                .Append(destination).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             yield return (DirectoryUpgrade.Open(directory, roots), roots);
         }
     }

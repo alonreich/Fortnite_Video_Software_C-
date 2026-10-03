@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Diagnostics;
 using System.Globalization;
@@ -355,6 +361,20 @@ public class FluidVolumeSlider : Slider
     {
         base.OnPointerExited(e);
         RefreshInteracting();
+    }
+
+    /// <summary>VOLWHEEL_01 — the mouse wheel steps the volume (one notch = 5%, Shift = 1%).</summary>
+    public const double WheelStepPercent = 5.0;
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        if (!IsEnabled || e.Delta.Y == 0) return;
+        double step = (e.KeyModifiers & KeyModifiers.Shift) != 0 ? 1.0 : WheelStepPercent;
+        Value = Math.Clamp(Math.Round(Value + Math.Sign(e.Delta.Y) * step), Minimum, Maximum);
+        _releaseTimeSeconds = NowSeconds;
+        RefreshInteracting();
+        e.Handled = true;
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)

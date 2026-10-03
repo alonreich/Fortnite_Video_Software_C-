@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -69,11 +72,23 @@ public static class SettingsBackupService
             {
                 string stateFile = paths.SessionStateFile;
 
+                // ⚠️ UNCHANGED CONTRACT: no state file means silently do nothing — no dialog, no
+                // error. Exporting before the app has ever written state is not a failure.
                 if (File.Exists(stateFile))
                 {
+                    // CONFIGIO_01 — read a CONSISTENT snapshot instead of byte-copying a file a
+                    // sibling process may be mid-write on. LoadSync prefers the live in-process
+                    // server, then the pipe, then the file under the named mutex — so whichever
+                    // holds the authoritative copy is the one that gets exported.
+                    // Off the UI thread: the mutex fallback can wait up to DefaultMutexTimeout.
                     var store = new StateTransferStore(paths);
                     JsonObject snapshot = await Task.Run(() => store.LoadSync());
 
+                    // CONFIGIO_01 — refuse to write a backup that could never be imported.
+                    // LoadSync returns an EMPTY JsonObject when it cannot take the lock, and the
+                    // import gate below rejects any document without schema_version. Writing that
+                    // silently would hand the user a file that fails on restore, months later,
+                    // with no way to tell why.
                     if (snapshot.Count == 0 || snapshot["schema_version"] == null)
                     {
                         RuntimeLog.Fail("Config",
@@ -124,16 +139,38 @@ public static class SettingsBackupService
                 var state = JsonNode.Parse(json)?.AsObject();
                 if (state == null) throw new InvalidOperationException("File is empty or invalid JSON.");
 
+                // ⚠️ UNCHANGED, AND STILL FIRST. This is the only thing separating a real backup
+                // from an arbitrary .json, and its exact wording is what the user sees. The
+                // sanitiser below is ADDED after it, never substituted for it.
                 if (state["schema_version"] == null) throw new InvalidOperationException("Missing schema_version lock. This is not a valid Free Video Studio configuration file.");
 
+                // CONFIGIO_01 — everything past the schema gate is still untrusted input. Run it
+                // through the SAME validator every other writer passes: per-key types, numeric
+                // bounds, BoundsKeys/SubprocessStateKeys shapes. Rejected keys are dropped and
+                // logged by the sanitiser itself, so a stripped import is diagnosable rather than
+                // silent, and the app cannot be started into an unparseable state by a hand-edited
+                // or corrupted file.
                 JsonObject sanitized = StateTransferStore.SanitizeObjectInternal(state, "config-import");
 
+                // CONFIGIO_01 — commit through the store, which takes the named mutex, re-stamps
+                // schema_version and writes via AtomicJsonFile (temp file -> WriteThrough ->
+                // flush-to-disk -> atomic rename). It also routes to the live NamedPipeStateServer
+                // when one is running, so the import can no longer be silently overwritten by that
+                // server's next flush.
                 await new StateTransferStore(paths).SaveAsync(sanitized);
 
+                // CONFIGIO_01 — Environment.Exit(0) below runs no finalizers and flushes nothing.
+                // When this process owns the state server, SaveAsync only marked it dirty on a
+                // debounce timer that the exit would kill, so force the write to disk here and
+                // confirm it before going anywhere near the exit.
+                // (When another PROCESS owns the state, that server owns the flush; it stays alive
+                // after this one exits, so there is nothing to force from here.)
                 NamedPipeStateServer.ActiveInstance?.FlushToDiskSafe();
 
                 NativeDialog.ShowInfo("Configuration successfully restored!\n\nThe application will now close to apply changes. Please restart it manually.");
 
+                // ⚠️ RECOVERY_02: onBeforeExit() carries MarkCleanShutdownIntent(). It MUST run
+                // before the exit or the next launch reports a crash that never happened.
                 onBeforeExit();
                 Environment.Exit(0);
                 return true;

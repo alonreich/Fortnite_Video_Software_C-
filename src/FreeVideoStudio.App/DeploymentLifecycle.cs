@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
@@ -62,7 +65,7 @@ internal static class DeploymentLifecycle
             "Deployment failed before it could complete." + Environment.NewLine +
             $"Reason: {ex.Message}" + Environment.NewLine +
             $"Report: {DeploymentFootprint.InstallReportPath}");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return 1;
         }
     }
@@ -229,6 +232,7 @@ internal static class DeploymentLifecycle
 
         int cmp = current.CompareTo(installed);
 
+        // INSTALL_02 — upgrade (cmp > 0) AND same-version reinstall (cmp == 0) both proceed silently.
         if (cmp >= 0) return true;
 
         return NativeDialog.ShowQuestion(
@@ -359,6 +363,13 @@ internal static class DeploymentLifecycle
 
         await CopyFileAggressiveAsync(DeploymentFootprint.InstallPath, DeploymentFootprint.UninstallPath).ConfigureAwait(false);
 
+        // USERSCOPE_01 — no machine-wide writable folder any more. App state lives per user under
+        // %LOCALAPPDATA% (ApplicationPaths.DefaultUserRoot), created by the app itself on first
+        // launch. This step used to create %ProgramData%\Free Video Studio and grant
+        // BUILTIN\Users FULL CONTROL over it, which is what let every account on the machine read
+        // and overwrite every other account's settings and crash-recovery state. A legacy folder
+        // from an older install is left for the one-time per-user migration, and it is still purged
+        // by the uninstaller (DeploymentFootprint.GetDirectoryPurgeTargets).
         await DeploymentReporter.StepAsync("DEPLOY PROGRAMDATA", "Per-user data root (created by the app on first launch); no machine-wide writable folder is created.", 72).ConfigureAwait(false);
 
         await DeploymentReporter.StepAsync("DEPLOY REGISTRY", "Writing Windows Apps & Features uninstall entry.", 78).ConfigureAwait(false);
@@ -410,7 +421,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             await DeploymentReporter.StepAsync("CLEANUP RETRY", $"Fast delete failed for {directory}: {ex.Message}. Deleting contents one by one.", null).ConfigureAwait(false);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
 
         foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).ToArray())
@@ -460,7 +471,7 @@ internal static class DeploymentLifecycle
                 {
                 await Task.Delay(250).ConfigureAwait(false);
                 }
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             }
         }
     }
@@ -506,7 +517,7 @@ internal static class DeploymentLifecycle
             try { normalized = Path.GetFullPath(folder).TrimEnd('\\', '/'); }
             catch (System.Exception swallowed)
             {
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                 continue;
             }
 
@@ -604,7 +615,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             await DeploymentReporter.StepAsync("REGISTRY SKIP", $"{hive} {view}\\{path}: {ex.Message}", null).ConfigureAwait(false);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -749,7 +760,7 @@ internal static class DeploymentLifecycle
         }
         catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }
@@ -790,7 +801,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             DeploymentReporter.AppendFatalAsync("EXTRACT PAYLOAD", ex).GetAwaiter().GetResult();
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -818,7 +829,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             DeploymentReporter.AppendFatalAsync("EXTRACT DEPENDENCIES", ex).GetAwaiter().GetResult();
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -849,7 +860,7 @@ internal static class DeploymentLifecycle
             catch (Exception ex)
             {
                 await DeploymentReporter.StepAsync("LAUNCH RETRY", $"Attempt {attempt} failed: {ex.Message}", 98).ConfigureAwait(false);
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             }
 
             await Task.Delay(200).ConfigureAwait(false);
@@ -947,7 +958,7 @@ internal static class DeploymentLifecycle
         {
             await DeploymentReporter.StepAsync("PROCESS TASKKILL", $"Falling back to taskkill for PID {process.Id}: {ex.Message}", null).ConfigureAwait(false);
             await RunHiddenProcessAsync("taskkill.exe", $"/F /PID {process.Id} /T", 3000).ConfigureAwait(false);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -1046,7 +1057,7 @@ internal static class DeploymentLifecycle
         }
         catch (System.Exception swallowed3)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
 
         try
@@ -1091,7 +1102,7 @@ internal static class DeploymentLifecycle
         }
         catch (System.Exception swallowed5)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return "1.0.0.0";
         }
     }
@@ -1229,7 +1240,7 @@ internal static class DeploymentLifecycle
                 }
                 catch (System.Exception swallowed6)
                 {
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
                     return null;
                 }
             }
@@ -1265,7 +1276,7 @@ internal static class DeploymentLifecycle
         }
         catch (System.Exception swallowed7)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }
@@ -1329,6 +1340,10 @@ internal static class DeploymentLifecycle
             }
             catch (TimeoutException swallowed4)
             {
+                // Deployment helpers are non-interactive, so the stdin quit command is skipped
+                // and the grace period is zero: hard kill the tree immediately — but WITH the
+                // bounded exit confirmation, so the output reads below never race a process
+                // that is still dying. Never throws.
                 await GracefulProcessTerminator.TerminateAsync(
                 process,
                 "PROCESS TIMEOUT",
@@ -1338,7 +1353,7 @@ internal static class DeploymentLifecycle
                 error = errorTask.IsCompletedSuccessfully ? errorTask.Result : string.Empty;
                 await DeploymentReporter.StepAsync("PROCESS TIMEOUT",
                 $"{command}; killed after {timeoutMilliseconds} ms; output={output}; error={error}", null).ConfigureAwait(false);
-                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);
+                global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
                 return -1;
             }
 
@@ -1348,7 +1363,7 @@ internal static class DeploymentLifecycle
         catch (Exception ex)
         {
             await DeploymentReporter.StepAsync("PROCESS ERROR", $"{exe} {args}: {ex.Message}", null).ConfigureAwait(false);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return -1;
         }
     }

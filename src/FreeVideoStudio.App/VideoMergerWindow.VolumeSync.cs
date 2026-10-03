@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -8,39 +10,16 @@ namespace FreeVideoStudio.App;
 
 public partial class VideoMergerWindow
 {
-    private bool _isSyncingMasterVolume;
-
-    private void OnGlobalMasterVolumeChanged(int masterVolumePercentage)
+    /// <summary>
+    /// AUD-MASTERVOL — re-applies the suite master to the Merger's players after ANY master change.
+    /// Two fixes over the old copy: the gameplay player now carries the Music Wizard's VIDEO fader
+    /// (it ignored it, so the preview balance was wrong), and the music player is updated live (it
+    /// only picked the master up when its next track started).
+    /// </summary>
+    private void ApplyPreviewPlayersVolume()
     {
-        Dispatcher.UIThread.Post(() =>
-        {
-            var slider = VolumeSliderCtl;
-            if (slider != null && Math.Abs(slider.Value - masterVolumePercentage) > 0.5)
-            {
-                _isSyncingMasterVolume = true;
-                try
-                {
-                    slider.Value = masterVolumePercentage;
-                    var badge = this.FindControl<TextBlock>("VolumeBadgeText");
-                    if (badge != null) badge.Text = $"{masterVolumePercentage}%";
-                    var icon = this.FindControl<Avalonia.Controls.Shapes.Path>("VolumeSpeakerIcon");
-                    if (icon != null)
-                    {
-                        icon.Data = masterVolumePercentage == 0
-                            ? Geometry.Parse("M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M12,5 L16,13 M16,5 L12,13")
-                            : Geometry.Parse("M3,7 L6,7 L10,3 L10,13 L6,9 L3,9 Z M13,5 A4,4 0 0,1 13,11 M16,2 A8,8 0 0,1 16,14");
-                    }
-                }
-                finally
-                {
-                    _isSyncingMasterVolume = false;
-                }
-            }
-        });
-
-        if (_videoHost?.IpcClient != null)
-        {
-            _ = _videoHost.IpcClient.SetPreviewVolumeAsync(masterVolumePercentage);
-        }
+        _ = _videoHost?.IpcClient?.ApplyPreviewGainAsync(_musicResult?.VideoVolume ?? 1.0);
+        if (_mergerMusicClient != null && _musicResult != null)
+            _ = _mergerMusicClient.ApplyPreviewGainAsync(_musicResult.MusicVolume);
     }
 }

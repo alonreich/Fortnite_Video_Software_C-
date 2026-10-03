@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -24,6 +27,7 @@ public sealed class SentinelListTests
         SentinelList.FindRepositoryRoot(AppContext.BaseDirectory)
         ?? throw new InvalidOperationException("Could not locate the repository root from the test binary.");
 
+    // ── The real list ───────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// VERIFYHALT_01 — the check the whole mechanism exists for, run against the real working tree.
@@ -55,6 +59,7 @@ public sealed class SentinelListTests
           + "being skipped, not that the fixes were retired.");
     }
 
+    // ── Parsing ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void CommentsAndBlankLinesAreSkipped()
@@ -85,7 +90,7 @@ public sealed class SentinelListTests
         IReadOnlyList<Sentinel> parsed = SentinelList.Parse(new[]
         {
             "TAG_01=src/Thing.cs",
-            "REM --- Crop Tools rework, phase 3 ---",
+            "REM --- Crop Tools rework, phase 3 ---",   // the exact shape that broke the batch list
             "=src/NoTag.cs",
             "TAG_02=",
         }, out IReadOnlyList<string> malformed);
@@ -130,6 +135,7 @@ public sealed class SentinelListTests
         Assert.Equal(2, parsed.Count);
     }
 
+    // ── Checking ────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void AMissingFileAndAMissingTagAreDistinguished()

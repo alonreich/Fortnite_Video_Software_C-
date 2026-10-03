@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 
 using System.Diagnostics;
 using System.Globalization;
@@ -71,7 +74,7 @@ public class MediaProber
         catch (System.Exception swallowed)
         {
             _probeData = new JsonObject();
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -143,14 +146,6 @@ public class MediaProber
             }
         }
         return VideoColorInfo.Unknown;
-    }
-
-    /// <summary>SCRAPER_01 — length of the tagged thumbnail intro, or 0 (see <see cref="IntroTag"/>).</summary>
-    public async Task<double> GetIntroTagSecAsync()
-    {
-        var data = await ProbeAsync();
-        double duration = await GetDurationAsync();
-        return IntroTag.Read(data["format"]?["tags"], duration);
     }
 
     /// <summary>TIMINGTAG_02 — frame-exact timing tag (v2), or the v1 seconds tag, or null.</summary>

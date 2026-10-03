@@ -1,4 +1,7 @@
-﻿using System.Diagnostics;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using FreeVideoStudio.Core.Infrastructure;
@@ -40,6 +43,7 @@ public class MergerWorker : IDisposable
     /// in <see cref="CooperativeShutdownGate"/>; the members below are thin delegations kept at
     /// their original signatures so no call site in this file changes.
     /// </summary>
+    // PIPELIFE_01 — the shutdown ladder now lives in FfmpegJobLifetime.
 
     public event Action<int>? ProgressUpdate;
     public event Action<bool, string>? Finished;
@@ -49,12 +53,35 @@ public class MergerWorker : IDisposable
     public List<MusicTrack> MusicTracks { get; set; } = new();
     public JsonObject? MusicConfig { get; set; }
     public string? OutputDirectory { get; set; }
+
+    /// <summary>
+    /// OUTNAME_01 — the user's automatic file-name base for merged videos (Settings › Output
+    /// Files). Output is <c>&lt;base&gt;-&lt;N&gt;.mp4</c>; null or unusable input falls back to
+    /// <see cref="OutputFileNaming.MergerDefaultBaseName"/>.
+    /// </summary>
+    public string? OutputBaseName { get; set; }
     public double SpeedFactor { get; set; } = 1.0;
     public enum TargetAspectRatio { Landscape16x9, Portrait9x16 }
     public TargetAspectRatio OutputRatio { get; set; } = TargetAspectRatio.Landscape16x9;
 
     public int QualityPercent { get; set; } = 100;
+
+    /// <summary>
+    /// PEAKSAFE_01 — the user's "soften sudden loud moments" switch: a peak tamer on EACH clip's
+    /// gameplay, thresholded against that clip's own measured loudness. The true-peak safety limiter
+    /// on the final mix is always on and is not controlled by this.
+    /// </summary>
     public bool AutoSpikeFlattening { get; set; } = true;
+
+    /// <summary>
+    /// CLIPLEVEL_01 — Settings › Merger "Even out the volume between clips". When on, every clip with
+    /// sound is gained toward the MEDIAN measured loudness of the queue (clamped to
+    /// ±<see cref="ClipMatchMaxGainDb"/>), so clips recorded at different levels do not jump. The
+    /// reference is the queue itself, never an external standard (LOUDSTD_REMOVED_01).
+    /// </summary>
+    public bool MatchClipLoudness { get; set; }
+
+    public const double ClipMatchMaxGainDb = 12.0;
 
     /// <summary>
     /// G03 / ISSUE 2 — which chip should encode. Mirrors <c>ProcessWorker.HardwareStrategy</c>.
@@ -140,7 +167,56 @@ public class MergerWorker : IDisposable
     }
 
     /// <summary>A meme file opened as an extra FFmpeg input for one clip's graph.</summary>
-    private sealed record MemeInputFile(int Clip, string Path, bool IsImage, bool HasAudio, double DurationSec, double AtRelSec, double GainDb = 0);
+    private sealed record MemeInputFile(int Clip, string Path, bool IsImage, bool HasAudio, double DurationSec, double AtRelSec, double GainDb = 0,
+        EdlMeme? Source = null);
+
+    /// <summary>
+    /// CLIPLEVEL_01 / PEAKSAFE_01 — one measurement per clip with sound, over its kept window, at most
+    /// three at a time. Null entries = no audio or unmeasurable (that clip is then left alone).
+    /// </summary>
+    private async Task<double?[]> MeasureClipLoudnessAsync(
+        (double start, double end, bool trimmed)[] windows, bool[] hasAudio, CancellationToken token)
+    {
+        var result = new double?[InputFiles.Count];
+        using var gate = new SemaphoreSlim(3);
+        var tasks = new List<Task>();
+        for (int i = 0; i < InputFiles.Count; i++)
+        {
+            if (!hasAudio[i]) continue;
+            int idx = i;
+            tasks.Add(Task.Run(async () =>
+            {
+                await gate.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    var w = windows[idx];
+                    var r = await AudioLoudnessProbe.MeasureAsync(_ffmpegPath, InputFiles[idx], token,
+                        segmentStartSec: w.start, segmentDurationSec: Math.Max(0, w.end - w.start)).ConfigureAwait(false);
+                    if (r != null && double.IsFinite(r.IntegratedLufs) && r.IntegratedLufs > -69.0)
+                        result[idx] = r.IntegratedLufs;
+                }
+                finally { gate.Release(); }
+            }, token));
+        }
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>CLIPLEVEL_01 — the per-clip gain toward the queue's median loudness (0 when off/unmeasured).</summary>
+    public static double[] ClipMatchGains(IReadOnlyList<double?> clipLufs, bool enabled)
+    {
+        var gains = new double[clipLufs.Count];
+        if (!enabled) return gains;
+        var measured = clipLufs.Where(v => v.HasValue).Select(v => v!.Value).OrderBy(v => v).ToList();
+        if (measured.Count < 2) return gains;
+        double median = measured.Count % 2 == 1
+            ? measured[measured.Count / 2]
+            : (measured[measured.Count / 2 - 1] + measured[measured.Count / 2]) / 2.0;
+        for (int i = 0; i < clipLufs.Count; i++)
+            if (clipLufs[i] is double v)
+                gains[i] = Math.Clamp(median - v, -ClipMatchMaxGainDb, ClipMatchMaxGainDb);
+        return gains;
+    }
 
     /// <summary>
     /// TIMINGTAG_02 — the merged file's timing tag. Merges are CFR 60. Fades are UNKNOWN (null) until
@@ -199,6 +275,7 @@ public class MergerWorker : IDisposable
     {
         var (start, end, trimmed) = ResolveUserWindow(index, fileDuration);
 
+        // SCRAPER_02 — a removed thumbnail intro moves the start past it, never before the user's own in-point.
         double skip = ClipIntroSkipSec != null && index >= 0 && index < ClipIntroSkipSec.Count ? ClipIntroSkipSec[index] : 0;
         if (skip > start + 0.0005 && end - skip >= MinTrimmedClipSec)
         {
@@ -309,6 +386,8 @@ public class MergerWorker : IDisposable
             ? cancellationToken.Register(() => _isCanceled = true)
             : default;
 
+        // Hoisted so the cancellation handlers below can clean the job's partial outputs up
+        // before the final cancelled status is emitted, even on the exception paths.
         string? tempJobDir = null;
 
         try
@@ -329,6 +408,10 @@ public class MergerWorker : IDisposable
                 return;
             }
 
+            // TEMPO_01 — Rubber Band capability, probed once per FFmpeg binary and cached, BEFORE any
+            // graph (plain clip or MergeClipGraph) is built. Never throws; failure means atempo.
+            await AudioTempoFilterBuilder.EnsureProbedAsync(_ffmpegPath).ConfigureAwait(false);
+
             string jobId = Guid.NewGuid().ToString("N")[..8];
             tempJobDir = Path.Combine(_paths.TempDirectory, $"fvs_merger_{jobId}");
             Directory.CreateDirectory(tempJobDir);
@@ -342,7 +425,7 @@ public class MergerWorker : IDisposable
                 var fileResolutions = new (int width, int height)[InputFiles.Count];
                 var clipWindows = new (double start, double end, bool trimmed)[InputFiles.Count];
                 var clipDurations = new double[InputFiles.Count];
-                var fileColors = new VideoColorInfo[InputFiles.Count];
+                var fileColors = new VideoColorInfo[InputFiles.Count];   // COLOR_01
                 double peakSourceVideoBitrateKbps = 0;
                 double durationWeightedBitrateKbps = 0;
                 for (int fi = 0; fi < InputFiles.Count; fi++)
@@ -387,13 +470,42 @@ public class MergerWorker : IDisposable
                 double speedFactor = SpeedFactor > 0 ? SpeedFactor : 1.0;
                 double outputDuration = totalDuration / speedFactor;
 
-                ResolveOutputFades(clipWindows, fileDurations, speedFactor);
+                ResolveOutputFades(clipWindows, fileDurations, speedFactor);   // OUTTAG_01
 
+                // CLIPLEVEL_01 / PEAKSAFE_01 / MEMELEVEL_02 — each clip's own loudness, measured once.
+                // Feeds the optional clip matching, the per-clip peak tamer and meme matching.
+                bool anyMemes = edlMatchesForMemes();
+                bool edlMatchesForMemes() => EdlMatchesInputs() && Edl!.Clips.Any(c => c.Effects.Memes.Count > 0);
+                double?[] clipLufs = (AutoSpikeFlattening || MatchClipLoudness || anyMemes)
+                    ? await MeasureClipLoudnessAsync(clipWindows, fileHasAudio, cancellationToken).ConfigureAwait(false)
+                    : new double?[InputFiles.Count];
+                double[] clipGainDb = ClipMatchGains(clipLufs, MatchClipLoudness);
+                // The level each clip's gameplay ends up at after matching — what its memes match and
+                // what its tamer threshold is placed against.
+                var clipLevelLufs = new double?[InputFiles.Count];
+                for (int ci2 = 0; ci2 < InputFiles.Count; ci2++)
+                {
+                    clipLevelLufs[ci2] = clipLufs[ci2] is double cl ? cl + clipGainDb[ci2] : null;
+                    if (fileHasAudio[ci2])
+                        CoreLogger.Info("Merger", $"  [{ci2 + 1}] loudness {(clipLufs[ci2] is double l ? $"{l:F2} LUFS" : "unmeasured")}" +
+                            (MatchClipLoudness ? $", clip match {clipGainDb[ci2]:+0.00;-0.00} dB" : "") + ".");
+                }
+                string ClipAudioFilter(int idx)
+                {
+                    string f = "";
+                    if (Math.Abs(clipGainDb[idx]) > 0.01)
+                        f += ",volume=" + Math.Pow(10, clipGainDb[idx] / 20.0).ToString("F4", CultureInfo.InvariantCulture);
+                    if (AutoSpikeFlattening && PeakSafety.TamerFilter(clipLevelLufs[idx]) is string tamer)
+                        f += "," + tamer;
+                    return f;
+                }
+
+                // MERGEGRAPH_01 — clips with granular effects, and their meme files.
                 bool edlMatches = EdlMatchesInputs();
                 var fxClips = new EdlClip?[InputFiles.Count];
                 var memeFiles = new List<MemeInputFile>();
-                var memeGainByPath = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-                CompositeTimeline? frameAuthority = null;
+                var memeLufsByPath = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);   // MEMELEVEL_02 — one measurement per file
+                CompositeTimeline? frameAuthority = null;   // CLIPFRAMES_01 — per-clip frame counts for the plain chain
                 if (edlMatches)
                 {
                     var composite = CompositeTimeline.Build(Edl!);
@@ -425,13 +537,19 @@ public class MergerWorker : IDisposable
                             }
                             if (dur <= 0) dur = MemePlacement.StillImageDurationSec;
                             double gainDb = 0;
-                            if (memeAudio && !memeGainByPath.TryGetValue(m.FilePath, out gainDb))
+                            if (memeAudio)
                             {
-                                gainDb = await MemeLoudness.GainDbAsync(_ffmpegPath, m.FilePath, cancellationToken).ConfigureAwait(false);
-                                memeGainByPath[m.FilePath] = gainDb;
+                                if (!memeLufsByPath.TryGetValue(m.FilePath, out double? memeLufs))
+                                {
+                                    memeLufs = await MemeLoudness.MeasureLufsAsync(_ffmpegPath, m.FilePath, cancellationToken).ConfigureAwait(false);
+                                    memeLufsByPath[m.FilePath] = memeLufs;
+                                }
+                                // MEMELEVEL_02 — as loud as the clip it cuts into (after clip matching).
+                                gainDb = MemeLoudness.GainFor(memeLufs, clipLevelLufs[i]);
+                                CoreLogger.Info("Audio", $"MERGER MEME LEVEL: '{Path.GetFileName(m.FilePath)}' -> clip [{i + 1}] = {gainDb:+0.00;-0.00} dB.");
                             }
                             memeFiles.Add(new MemeInputFile(i, m.FilePath, isImage, memeAudio, dur,
-                                CompositeTimeline.MemeAtRelSec(c, m, keepIn, keepOut, keepSec), gainDb));
+                                CompositeTimeline.MemeAtRelSec(c, m, keepIn, keepOut, keepSec), gainDb, m));   // MEMEMODE_01 carries mode/corner/size/sound
                         }
                         CoreLogger.Info("Merger", $"  [{i + 1}] granular effects: {c.Effects.Speed.Count} speed, {c.Effects.Freezes.Count} freeze, {c.Effects.Cuts.Count} cut, {c.Effects.Memes.Count} meme.");
                     }
@@ -493,12 +611,14 @@ public class MergerWorker : IDisposable
                     }
                     if (hasThumbIntro)
                     {
+                        // SCRAPER_04 — the custom thumbnail frame, read from its own clip.
                         double thumbDur = fileDurations[ThumbnailClipIndex];
                         double thumbAt = Math.Max(0, ThumbnailSourceSec);
                         if (thumbDur > 0.35) thumbAt = Math.Min(thumbAt, thumbDur - 0.3);
                         args.AddRange(decodeFlags);
                         args.AddRange(["-ss", thumbAt.ToString("F3", CultureInfo.InvariantCulture), "-t", "0.300", "-i", InputFiles[ThumbnailClipIndex]]);
                     }
+                    // MERGEGRAPH_01 — meme files, software-decoded (small, and any format).
                     foreach (var mf in memeFiles)
                     {
                         if (mf.IsImage)
@@ -525,15 +645,21 @@ public class MergerWorker : IDisposable
                     if (resolution.width > 0 && resolution.height > 0 &&
                         (long)resolution.width * canvasH == (long)resolution.height * canvasW)
                     {
+                        // Matching aspect ratios need neither padding nor crop. This exact
+                        // scale has a CUDA equivalent; mixed aspect ratios keep their effects.
                         scaleFilter = $"scale={canvasW}:{canvasH}:flags=lanczos";
                     }
 
                     var win = clipWindows[i];
+                    // FRAMESNAP_01 — microsecond precision, and the start backed off by an epsilon so the
+                    // frame whose pts IS the cut survives decimal rounding.
                     string trimStart = TrimStartSec(win.start).ToString("F6", CultureInfo.InvariantCulture);
                     string trimEnd = win.end.ToString("F6", CultureInfo.InvariantCulture);
                     string vTrim = win.trimmed ? $"trim=start={trimStart}:end={trimEnd}," : "";
                     string aTrim = win.trimmed ? $"atrim=start={trimStart}:end={trimEnd}," : "";
 
+                    // COLOR_01 — each input is normalised to SDR BT.709 TV range BEFORE concat, so a
+                    // mixed HDR/SDR (or full/limited-range) queue cannot concat mismatched pixels.
                     VideoColorInfo clipColor = fileColors[i] ?? VideoColorInfo.Unknown;
                     bool clipCanToneMap = clipColor.IsHdr
                         && await ExportColorPolicy.HasFilterAsync(_ffmpegPath, "zscale")
@@ -547,22 +673,36 @@ public class MergerWorker : IDisposable
 
                     if (fxClips[i] is EdlClip fxClip)
                     {
+                        // MERGEGRAPH_01 — the Main App's granular engine for this clip, then its memes.
                         int memeBase = InputFiles.Count + effectiveMusicTracks.Count + (hasThumbIntro ? 1 : 0);
                         var clipMemes = new List<MergeMemeInput>();
                         for (int k = 0; k < memeFiles.Count; k++)
                             if (memeFiles[k].Clip == i)
-                                clipMemes.Add(new MergeMemeInput(memeBase + k, memeFiles[k].IsImage, memeFiles[k].HasAudio, memeFiles[k].DurationSec, memeFiles[k].AtRelSec, memeFiles[k].GainDb));
+                            {
+                                var src = memeFiles[k].Source;
+                                clipMemes.Add(new MergeMemeInput(memeBase + k, memeFiles[k].IsImage, memeFiles[k].HasAudio, memeFiles[k].DurationSec, memeFiles[k].AtRelSec, memeFiles[k].GainDb,
+                                    src?.Mode ?? MemePresentationMode.InlineFullScreen, src?.Corner ?? MemeOverlayCorner.BottomRight,
+                                    src?.Size ?? MemeOverlaySize.Medium, src?.PlaySound ?? true));
+                            }
                         string memeCanvas = $"scale={canvasW}:{canvasH}:force_original_aspect_ratio=decrease:flags=lanczos,pad={canvasW}:{canvasH}:(ow-iw)/2:(oh-ih)/2,format=yuv420p";
                         var fxGraph = MergeClipGraph.Build(i, $"[{i}:v]", fileHasAudio[i] ? $"[{i}:a]" : null,
-                            win.start, win.end, fxClip.Effects, speedFactor, clipCanvasChains[i], memeCanvas, clipMemes);
+                            win.start, win.end, fxClip.Effects, speedFactor, clipCanvasChains[i], memeCanvas, clipMemes,
+                            bodyAudioFilter: fileHasAudio[i] ? ClipAudioFilter(i) : "",
+                            canvasW: canvasW, canvasH: canvasH);   // MEMEMODE_01 — corner overlay geometry
                         filters.AddRange(fxGraph.Filters);
                         filters.Add($"{fxGraph.VideoLabel}null[v{i}]");
-                        filters.Add($"{fxGraph.AudioLabel}anull[a{i}]");
+                        // SPLICE_03 — de-click the join to the neighbouring clips.
+                        filters.Add($"{fxGraph.AudioLabel}anull{(InputFiles.Count > 1 ? MemeLoudness.SpliceFade(fxGraph.DurationSec) : "")}[a{i}]");
                         CoreLogger.Info("Merger", $"  [{i + 1}] effects graph: {fxGraph.DurationSec:F3}s out, {fxGraph.MemeCount} meme(s) spliced.");
                         avInputs += $"[v{i}][a{i}]";
                         continue;
                     }
 
+                    // CLIPFRAMES_01 (P9, closes the P2.3 note) — fps=60 on a whole file emits frames up to the LAST
+                    // frame's end, one more than the composite's round(keep × 60) on e.g. a 59.94 clip (measured: 381
+                    // vs 380 over 3 odd-length clips). When the edit list describes the queue, every plain clip is
+                    // bounded to exactly the composite's frame count (a cloned frame pads a short one) and its audio to
+                    // the same length, so the file, the preview and the music all agree to the frame.
                     string frameBound = "", audioBound = "";
                     double boundSec = 0;
                     if (frameAuthority != null && i < frameAuthority.Clips.Count)
@@ -579,12 +719,14 @@ public class MergerWorker : IDisposable
                     double clipDur = clipDurations[i] > 0 ? clipDurations[i] : totalDuration;
                     if (fileHasAudio[i])
                     {
-                        double atempoSpeed = speedFactor;
-                        var atempoFilters = new List<string>();
-                        while (atempoSpeed > 2.0) { atempoFilters.Add("atempo=2.0"); atempoSpeed /= 2.0; }
-                        while (atempoSpeed < 0.5) { atempoFilters.Add("atempo=0.5"); atempoSpeed /= 0.5; }
-                        atempoFilters.Add($"atempo={atempoSpeed.ToString("F4", CultureInfo.InvariantCulture)}");
-                        filters.Add($"[{i}:a]{aTrim}asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000,{string.Join(",", atempoFilters)}{audioBound}[a{i}]");
+                        // TEMPO_01 — the SAME tempo policy as the Main App (AudioTempoFilterBuilder):
+                        // none at 1.0x (AVSYNC_01), Rubber Band below 1.0x when verified, else atempo.
+                        // It sits before CLIPFRAMES_01's apad/atrim bound and the SPLICE_03 fade.
+                        string atempoSegment = AudioTempoFilterBuilder.Segment(speedFactor, leadingComma: true);
+                        double clipOutSec = boundSec > 0 ? boundSec : clipDur / speedFactor;
+                        // CLIPLEVEL_01 / PEAKSAFE_01 then SPLICE_03 (de-click the clip joins).
+                        string spliceFade = InputFiles.Count > 1 ? MemeLoudness.SpliceFade(clipOutSec) : "";
+                        filters.Add($"[{i}:a]{aTrim}asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=48000{atempoSegment}{ClipAudioFilter(i)}{audioBound}{spliceFade}[a{i}]");
                     }
                     else
                     {
@@ -607,6 +749,8 @@ public class MergerWorker : IDisposable
 
                 string finalAudioLabel = aOutputLabel;
 
+                // Apply the Wizard's gameplay level even when its music is unavailable.
+                // No Wizard config means unity gain, independent of preview volume.
                 {
                     MusicConfig ??= new JsonObject();
 
@@ -628,20 +772,19 @@ public class MergerWorker : IDisposable
                         musicTracks: effectiveMusicTracks,
                         musicStartIndex: musicInputIndex,
                         totalProjectDuration: outputDuration,
-                        mainAudioLabel: aOutputLabel,
-                        volumeNormalizeDb: 0.0
+                        mainAudioLabel: aOutputLabel
                     );
 
                     filters.AddRange(duckChains);
                     finalAudioLabel = finalDuckingLabel;
                 }
 
-                if (AutoSpikeFlattening)
-                {
-                    filters.Add($"{finalAudioLabel}alimiter=limit=-1.5dB:level_in=1:level_out=1[a_flattened]");
-                    finalAudioLabel = "[a_flattened]";
-                }
+                // PEAKSAFE_01 — always-on true-peak safety limiter (no switch, no auto-level).
+                filters.Add($"{finalAudioLabel}{PeakSafety.SafetyLimiterFilter()}[a_flattened]");
+                finalAudioLabel = "[a_flattened]";
 
+                // SCRAPER_04 — custom thumbnail: a still intro built from the chosen frame, prepended
+                // AFTER speed, concat and the music mix, so it moves nothing the user placed.
                 const double thumbIntroSec = IntroTag.StandardIntroSec;
                 if (hasThumbIntro)
                 {
@@ -706,6 +849,10 @@ public class MergerWorker : IDisposable
                 }
                 else if (QualityPercent < 100 && averageSourceVideoBitrateKbps > 0)
                 {
+                    // MERGEQUALITY_01 — below 100% the old path was an UNCAPPED constant quality (CQ 16–35):
+                    // on high-motion gameplay CQ 16–17 easily out-spent the 100% bitrate, so 95% made a BIGGER
+                    // file than 100%. Now: VBR at the 100% bitrate × the quality curve, never above the 100%
+                    // peak, the same number the TOTAL SIZE estimate shows.
                     int full = OutputFileSize.MergerTargetKbps(averageSourceVideoBitrateKbps);
                     int target = Math.Max(300, (int)Math.Round(full * OutputFileSize.MergerQualityRatio(QualityPercent)));
                     losslessBitrateKbps = target;
@@ -735,13 +882,14 @@ public class MergerWorker : IDisposable
                     var (codecArgs, rcLabel) = encoderMgr.GetCodecFlags(currentEncoder, losslessBitrateKbps, outputDuration, "60", qualityLevel, false);
                     var videoPipeline = ExportVideoPipeline.Create(currentEncoder, filterScript, !gpuFiltersDisabled);
                     videoPipeline.ApplyCodecFlags(codecArgs);
+                    // IO_OPT: Pass short filter graphs inline to avoid the disk write.
                     bool useInlineFilter = videoPipeline.FilterGraph.Length < 8000;
                     if (!useInlineFilter)
                         await File.WriteAllTextAsync(filterScriptPath, videoPipeline.FilterGraph, cancellationToken);
                     LastVideoPipeline = videoPipeline.Description;
                     CoreLogger.Info("FFmpeg", LastVideoPipeline);
 
-                    if (losslessMaxrateKbps > 0)
+                    if (losslessMaxrateKbps > 0)   // MERGEQUALITY_01 — 100% and the capped VBR below it
                     {
                         for (int ci = 0; ci < codecArgs.Count - 1; ci++)
                         {
@@ -752,7 +900,7 @@ public class MergerWorker : IDisposable
                         }
                     }
 
-                    if (QualityPercent < 100 && !losslessBitrateKbps.HasValue)
+                    if (QualityPercent < 100 && !losslessBitrateKbps.HasValue)   // legacy CQ only when the source bitrate is unknown
                     {
                         for (int ci = 0; ci < codecArgs.Count - 1; ci++)
                         {
@@ -859,7 +1007,7 @@ public class MergerWorker : IDisposable
                             pass2Args.AddRange(["-filter_complex_script", filterScriptPath]);
                             pass2Args.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                             pass2Args.AddRange(TwoPassEncoding.PassArgs(passKbps, 2, twoPassLogPrefix));
-                            pass2Args.AddRange(["-c:a", "aac", "-b:a", "192k", ..IntroTag.OutputArgs(MergedOutputTiming())]);
+                            pass2Args.AddRange(["-c:a", "aac", "-b:a", "192k", ..IntroTag.OutputArgs(MergedOutputTiming())]);   // SCRAPER_01
                             pass2Args.Add(corePath);
 
                             var pass2Attempt = new ExportAttemptIdentity
@@ -899,7 +1047,7 @@ public class MergerWorker : IDisposable
                         attemptArgs.AddRange(["-filter_complex_script", filterScriptPath]);
                         attemptArgs.AddRange(["-map", vOutputLabel, "-map", finalAudioLabel]);
                         attemptArgs.AddRange(codecArgs);
-                        attemptArgs.AddRange(["-c:a", "aac", "-b:a", "192k", ..IntroTag.OutputArgs(MergedOutputTiming())]);
+                        attemptArgs.AddRange(["-c:a", "aac", "-b:a", "192k", ..IntroTag.OutputArgs(MergedOutputTiming())]);   // SCRAPER_01
                         attemptArgs.Add(corePath);
 
                         CoreLogger.Debug("FFmpeg", $"Command: {_ffmpegPath} {string.Join(" ", attemptArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}");
@@ -997,11 +1145,12 @@ public class MergerWorker : IDisposable
                         : (FreeVideoStudio.Core.Infrastructure.KnownFolders.GetDownloads()
                            ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
                     Directory.CreateDirectory(outputDir);
+                    string safeBase = OutputFileNaming.Sanitize(OutputBaseName, OutputFileNaming.MergerDefaultBaseName);
                     int idx = 1;
                     string finalOutput;
                     while (true)
                     {
-                        finalOutput = Path.Combine(outputDir, $"Merged-Videos-{idx}.mp4");
+                        finalOutput = Path.Combine(outputDir, OutputFileNaming.NumberedFileName(safeBase, idx));
                         if (!File.Exists(finalOutput)) break;
                         idx++;
                     }
@@ -1061,6 +1210,9 @@ public class MergerWorker : IDisposable
                     FailureDetail = null;
                     CoreLogger.Info("Merger", "Merge cancelled by the user.");
 
+                    // Remove every partial, half-written artifact BEFORE the cancelled status
+                    // is emitted, so the output location is left clean (zero 0-byte or
+                    // truncated video files) by the time the UI reports the stop.
                     await CleanupCancelledJobAsync(tempJobDir, corePath, twoPassMasterPath, successOutputPath);
 
                     LastFailure = new ExportFailure
@@ -1080,6 +1232,9 @@ public class MergerWorker : IDisposable
             }
             finally
             {
+                // Retried delete: the just-stopped encoder's file handles can take a moment to
+                // be released by the OS, and a single un-retried attempt is exactly how
+                // cancelled jobs used to leave partial files behind on disk.
                 await TryDeleteDirectoryWithRetryAsync(tempJobDir, "Merger").ConfigureAwait(false);
             }
         }
@@ -1243,7 +1398,7 @@ public class MergerWorker : IDisposable
 
         var pass2 = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-i", masterPath };
         pass2.AddRange(TwoPassEncoding.PassArgs(videoBitrateKbps, 2, passLogPrefix));
-        pass2.AddRange(["-c:a", "copy", ..IntroTag.OutputArgs(MergedOutputTiming()), finalPath]);
+        pass2.AddRange(["-c:a", "copy", ..IntroTag.OutputArgs(MergedOutputTiming()), finalPath]);   // SCRAPER_01
 
         CoreLogger.Info("FFmpeg", "Two-pass merge: encoding (3 of 3).");
         var pass2Attempt = new ExportAttemptIdentity
@@ -1283,6 +1438,8 @@ public class MergerWorker : IDisposable
             FileName = _ffmpegPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // Redirected on purpose: it is the channel for FFmpeg's interactive quit command
+            // ('q'), which the cooperative shutdown ladder writes to request a clean stop.
             RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -1297,6 +1454,9 @@ public class MergerWorker : IDisposable
         Process proc;
         try
         {
+            // PIPELIFE_02 — atomic take-and-clear, then dispose the one we own. The previous
+            // `_currentProcess?.Dispose()` left the field pointing at a disposed Process until the
+            // next line replaced it, which is a window Cancel() could land in.
             _lifetime.TakeCurrentProcess()?.Dispose();
             proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start process: {_ffmpegPath}");
             _lifetime.SetCurrentProcess(proc);
@@ -1314,17 +1474,24 @@ public class MergerWorker : IDisposable
             earlierAttempts: earlierAttempts);
 
             FailureDetail = startFailure.FormatDiagnosticReport();
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(startEx);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(startEx);   // FAULTTIER_02 — no failure is silent.
             return (false, startFailure);
         }
 
         try { ChildProcessTracker.AddProcess(proc); } catch (System.Exception ex) { CoreLogger.Swallowed(ex); }
 
+        // Cooperative stop on external cancellation: 'q' quit command → 1500 ms grace →
+        // Kill(entireProcessTree) → 2000 ms exit confirmation. Single-flight and off-thread,
+        // so a cancel can never hang the UI, and FFmpeg gets the chance to finalize its
+        // output instead of being killed mid-write.
         using var reg = cancellationToken.Register(() => BeginCooperativeShutdown(proc));
 
         var progressTask = Task.Run(async () =>
         {
             using var reader = proc.StandardOutput;
+            // No cancellation token on purpose: the loop drains to EOF once the (cooperatively
+            // stopped) process closes its pipes, so this reader always completes cleanly
+            // before the Process object is disposed below.
             while (!reader.EndOfStream)
             {
                 var line = await reader.ReadLineAsync();
@@ -1369,12 +1536,19 @@ public class MergerWorker : IDisposable
         }
         catch (OperationCanceledException swallowed7)
         {
+            // The registration above already started the cooperative ladder; await its bounded
+            // completion (≤ ~3.5 s worst case) so the exit code below is read from a process
+            // that is actually dead rather than one that is still dying.
             await AwaitActiveShutdownAsync();
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
         }
 
         try
         {
+            // Drain BOTH output readers before the Process object is disposed — a process
+            // killed with pending pipe data used to leave zombie reader tasks and lost stderr
+            // diagnostics behind. Strictly bounded by the same fallback limit as the ladder,
+            // so a stuck pipe can never stall a cancelled call either.
             Task drain = Task.WhenAll(progressTask, stderrTask);
             Task completed = await Task.WhenAny(drain, Task.Delay(GracefulProcessTerminator.HardKillConfirmMs));
             if (completed == drain)
@@ -1391,7 +1565,7 @@ public class MergerWorker : IDisposable
         }
         catch (OperationCanceledException swallowed5)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -1485,12 +1659,13 @@ public class MergerWorker : IDisposable
             }
             catch (IOException swallowed3)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             }
             catch (UnauthorizedAccessException swallowed4)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
                 return;
+                // Permissions will not improve by retrying.
             }
             catch (System.Exception ex)
             {
@@ -1519,12 +1694,13 @@ public class MergerWorker : IDisposable
             }
             catch (IOException swallowed6)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
             }
             catch (UnauthorizedAccessException swallowed2)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                 return;
+                // Permissions will not improve by retrying.
             }
             catch (System.Exception ex)
             {
@@ -1558,7 +1734,7 @@ public class MergerWorker : IDisposable
         => RescuedOutputPath.TryRescue(
             sourcePath,
             _paths.TempDirectory,
-            "Merged-Videos-RECOVERED-",
+            OutputFileNaming.MergerRecoveredPrefix,
             "Merger",
             "Could not preserve the finished merge");
 

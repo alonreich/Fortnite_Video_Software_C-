@@ -66,6 +66,7 @@ public sealed class GracefulProcessTerminatorTests
     [WindowsOnlyFact]
     public async Task TerminateAsync_StuckNonInteractiveProcess_HardKillsTreeAndConfirmsExit()
     {
+        // ~59 s of guaranteed runtime: still alive when the short grace period below expires.
         using var proc = StartCmd("/c ping -n 60 127.0.0.1 > nul");
 
         var stopwatch = Stopwatch.StartNew();
@@ -87,6 +88,9 @@ public sealed class GracefulProcessTerminatorTests
     [WindowsOnlyFact]
     public async Task TerminateAsync_InteractiveChild_QuitCommandCausesVoluntaryExit()
     {
+        // The child records the FIRST single stdin character it reads, then exits on its own
+        // — mirroring how ffmpeg treats an interactive 'q'. If the quit command is written
+        // and flushed correctly, the file ends up containing the char code of 'q' (113).
         string marker = Path.Combine(Path.GetTempPath(), "fvs_quit_test_" + Guid.NewGuid().ToString("N") + ".txt");
         try
         {
@@ -104,6 +108,8 @@ public sealed class GracefulProcessTerminatorTests
             };
             using var proc = Process.Start(psi)!;
 
+            // The grace period is generous on purpose: if the quit command works, the child
+            // exits long before it elapses, so the hard kill is never reached.
             await GracefulProcessTerminator.TerminateAsync(
                 proc, "test", attemptQuitCommand: true, cooperativeGraceMs: 8000, hardKillConfirmMs: 3000);
 
@@ -153,6 +159,8 @@ public sealed class GracefulProcessTerminatorTests
         using var cts = new CancellationTokenSource(300);
         var stopwatch = Stopwatch.StartNew();
 
+        // cmd.exe is not ffmpeg, so the runner skips the stdin quit command and escalates:
+        // 1500 ms grace → Kill(entireProcessTree) → exit confirmation → readers drained → rethrow.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => AsyncProcessRunner.RunAsync(psi, timeout: null, cts.Token));
 

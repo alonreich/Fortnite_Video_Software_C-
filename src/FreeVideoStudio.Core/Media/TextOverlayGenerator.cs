@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,6 +54,7 @@ public static class TextOverlayGenerator
             Color = SKColors.White,
             IsAntialias = true,
         };
+        // AOTCLEAN_04 — SkiaSharp 3: text state (typeface, size) lives on SKFont, not SKPaint.
         using var font = new SKFont(typeface) { Edging = SKFontEdging.Antialias };
 
         int currentFontSize = 110;

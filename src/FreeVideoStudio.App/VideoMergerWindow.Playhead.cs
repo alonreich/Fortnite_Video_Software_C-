@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -49,7 +52,7 @@ public partial class VideoMergerWindow
         _playheadLine = new Rectangle { Width = PlayheadWidth, Fill = red, IsHitTestVisible = false };
         _playheadCap = new Avalonia.Controls.Shapes.Path
         {
-            Data = Geometry.Parse("M -5,0 L 5,0 L 0,6 Z"),
+            Data = Geometry.Parse("M -5,0 L 5,0 L 0,6 Z"),   // small downward cap on the time scale
             Fill = red,
             IsHitTestVisible = false,
         };

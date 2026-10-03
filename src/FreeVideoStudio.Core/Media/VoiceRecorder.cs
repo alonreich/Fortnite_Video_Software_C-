@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using NAudio.Wave;
 using NAudio.Dsp;
 using System;
@@ -24,6 +27,9 @@ public class VoiceRecorder : IDisposable
     /// <summary>How long StopRecording waits for NAudio to hand over its final buffers.</summary>
     private const int StopDrainTimeoutMs = 2000;
 
+    // VODIAG_01 — capture accounting. Without these the only evidence a failed recording leaves
+    // behind is a WAV that may or may not exist, which cannot tell "the mic never opened" apart
+    // from "the mic opened and Windows fed it digital silence" (microphone privacy blocked).
     private long _bytesCaptured;
     private float _peakSeen;
     private int _buffersSeen;
@@ -74,7 +80,7 @@ public class VoiceRecorder : IDisposable
             }
             catch (System.Exception swallowed3)
             {
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
                 return false;
             }
         }
@@ -118,7 +124,7 @@ public class VoiceRecorder : IDisposable
             catch (System.Exception swallowed)
             {
                 deviceLabel = "(name unavailable)";
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             }
             CoreLogger.Info("VoiceRecorder",
                 $"Capture started on device {_waveIn.DeviceNumber} '{deviceLabel}' at {_waveIn.WaveFormat.SampleRate}Hz/{_waveIn.WaveFormat.Channels}ch -> '{Path.GetFileName(_outputPath)}'.");
@@ -163,7 +169,7 @@ public class VoiceRecorder : IDisposable
         }
         catch (ObjectDisposedException swallowed2)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {

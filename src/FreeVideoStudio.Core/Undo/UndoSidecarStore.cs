@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/07_UNDO_AND_HISTORY.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -127,6 +130,9 @@ public sealed class UndoSidecarStore
                 ["redo"] = WriteEntries(history.RedoEntries),
             };
 
+            // The same atomic write the project itself uses (05 §4c SYS-ATOMICWRITE). A half-written
+            // sidecar is worse than none: it parses far enough to look like history and then hands
+            // back truncated snapshots.
             AtomicJsonFile.WriteObject(PathFor(projectPath), root);
             return true;
         }
@@ -205,15 +211,20 @@ public sealed class UndoSidecarStore
         }
     }
 
+    // ── serialisation ───────────────────────────────────────────────────────────────────────
 
     private static JsonArray WriteEntries(IReadOnlyList<UndoEntry<ProjectDocument>> entries)
     {
         JsonArray array = new();
 
+        // U2 — the cap applies to the FILE as well. Keep the NEWEST entries: a history trimmed
+        // from the oldest end is what UndoStack.Restore expects and is what the user reaches first.
         int skip = Math.Max(0, entries.Count - MaxEntries);
 
         for (int i = skip; i < entries.Count; i++)
         {
+            // AOTSAFETY_06 — typed JsonNode so this binds to JsonArray.Add(JsonNode?) rather than
+            // the generic Add<T>, which carries RequiresUnreferencedCode / RequiresDynamicCode.
             JsonNode entry = new JsonObject
             {
                 ["label"] = entries[i].Label,
@@ -238,6 +249,9 @@ public sealed class UndoSidecarStore
 
             ProjectDocument? doc = ProjectSerializer.Read(stateObj, out string? error);
 
+            // A single unreadable entry does not discard the rest. The stack is a list of
+            // independent states, not a chain — dropping one loses that step and keeps the others,
+            // which is strictly better than throwing the session's whole history away.
             if (doc is null)
             {
                 CoreLogger.Warn("UNDO", $"Skipping an unreadable history entry: {error}");

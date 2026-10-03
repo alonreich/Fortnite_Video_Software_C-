@@ -8,6 +8,7 @@ namespace FreeVideoStudio.Core.Tests;
 /// <summary>MERGEEDIT_01 — Video-Merger-Migration.md P6.2 (whole-merge editor bridge, D16–D19).</summary>
 public class MergeEditorBridgeTests
 {
+    // Three 10 s clips. a: no tag. b: intro 6 f + fade-in 30 f + fade-out 60 f at 60 fps. c: no tag.
     private static readonly EdlClip A = new() { Path = @"C:\c\a.mp4", DurationUs = 10_000_000 };
     private static readonly EdlClip B = new() { Path = @"C:\c\b, weird;name%.mp4", DurationUs = 10_000_000, IntroCutUs = 100_000, Timing = new ExportTiming(60, 1, 6, 30, 60) };
     private static readonly EdlClip C = new() { Path = @"C:\c\c.mp4", DurationUs = 10_000_000 };
@@ -25,11 +26,12 @@ public class MergeEditorBridgeTests
         Assert.Equal(3, src.Clips.Count);
         Assert.Equal(10_000, src.Clips[0].EndMs, 6);
         Assert.Equal(10_000, src.Clips[1].StartMs, 6);
-        Assert.Equal(19_900, src.Clips[1].EndMs, 6);
+        Assert.Equal(19_900, src.Clips[1].EndMs, 6);          // intro (6 frames) removed from clip 2
         Assert.Equal(29_900, src.TotalMs, 6);
         Assert.Equal(500, src.Clips[1].FadeInMs, 6);
         Assert.Equal(1000, src.Clips[1].FadeOutMs, 6);
 
+        // Length-prefixed paths (commas, semicolons, percent), start = kept-in, length = frames/60.
         int bytes = System.Text.Encoding.UTF8.GetByteCount(B.Path);
         Assert.Equal($"edl://%{A.Path.Length}%{A.Path},0,10;%{bytes}%{B.Path},0.1,9.9;%{C.Path.Length}%{C.Path},0,10", src.MpvUrl);
     }
@@ -58,20 +60,22 @@ public class MergeEditorBridgeTests
         Assert.Equal(new EdlCut(9_100_000, 10_000_000), back.Clips[1].Effects.Cuts.Single());
         Assert.Equal(new EdlCut(0, 1_100_000), back.Clips[2].Effects.Cuts.Single());
 
+        // Output length = 29.9 + (4 s at 0.5x plays 8 s: +4) - 2 s cut = 31.9.
         Assert.Equal(31.9, CompositeTimeline.Build(back).TotalOutputSec, 3);
 
+        // And back into the editor: the two halves come back as two adjacent segments at the same speed.
         var again = MergeEditorSource.Build(CompositeTimeline.Build(back)).ToEditor(back);
         Assert.Equal(new[] { (8_000.0, 10_000.0), (10_000.0, 12_000.0) }, again.Segments.Select(s => (s.StartMs, s.EndMs)));
     }
 
     [Theory]
-    [InlineData(10_000, EdlMemePlacement.AtStart)]
-    [InlineData(10_400, EdlMemePlacement.AtStart)]
+    [InlineData(10_000, EdlMemePlacement.AtStart)]    // clip 2's first frame
+    [InlineData(10_400, EdlMemePlacement.AtStart)]    // inside clip 2's 0.5 s fade-in
     [InlineData(10_600, EdlMemePlacement.Mid)]
-    [InlineData(19_000, EdlMemePlacement.AtEnd)]
-    [InlineData(5_000, EdlMemePlacement.Mid)]
-    [InlineData(9_990, EdlMemePlacement.AtEnd)]
-    [InlineData(29_900, EdlMemePlacement.AtEnd)]
+    [InlineData(19_000, EdlMemePlacement.AtEnd)]      // inside clip 2's 1 s fade-out
+    [InlineData(5_000, EdlMemePlacement.Mid)]         // clip 1, no fade info
+    [InlineData(9_990, EdlMemePlacement.AtEnd)]       // clip 1's last frame
+    [InlineData(29_900, EdlMemePlacement.AtEnd)]      // the very end
     public void D17_MemePlacementByPosition(double atMs, EdlMemePlacement expected)
     {
         var (edl, src) = Build();
@@ -91,9 +95,10 @@ public class MergeEditorBridgeTests
         var back = src.FromEditor(st, edl);
         var m = back.Clips[1].Effects.Memes.Single();
         Assert.Equal(EdlMemePlacement.AtEnd, m.Placement);
-        Assert.Equal(9_000_000, m.AtUs);
+        Assert.Equal(9_000_000, m.AtUs);                                   // fade-out starts 1 s before the end
         var shown = src.ToEditor(back).Memes.Single();
-        Assert.Equal(18.9, shown.AtSourceSecRelative, 6);
+        Assert.Equal(18.9, shown.AtSourceSecRelative, 6);                  // shown where it will play
+        // The composite timeline plays the meme before the fade-out: output grows by exactly 2 s.
         Assert.Equal(31.9, CompositeTimeline.Build(back).TotalOutputSec, 3);
     }
 
@@ -125,6 +130,7 @@ public class MergeEditorBridgeTests
         Assert.Equal(st.Memes, st2.Memes);
         Assert.Equal(st.BaseSpeed, st2.BaseSpeed);
 
+        // Re-applying the same editor state changes nothing (undo sees no phantom edit).
         Assert.Equal(back, MergeEditorSource.Build(CompositeTimeline.Build(back)).FromEditor(st2, back));
     }
 
@@ -147,6 +153,7 @@ public class MergeEditorBridgeTests
     {
         var fx = new EdlEffects { Cuts = new[] { new EdlCut(2_000_000, 4_000_000) }, Speed = new[] { new EdlSpeedSegment(6_000_000, 8_000_000, 1.0) } };
         var edl = new MergeEdl { Clips = new[] { A with { Effects = fx } }, BaseSpeed = 2.0 };
+        // 10 s - 2 s cut = 8 s; 2 s segment at an ABSOLUTE 1.0x = 2 s; the other 6 s at 2x = 3 s → 5 s.
         Assert.Equal(5.0, CompositeTimeline.Build(edl).TotalOutputSec, 6);
     }
 }

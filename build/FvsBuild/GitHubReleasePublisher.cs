@@ -4,6 +4,14 @@ using FreeVideoStudio.Core.Infrastructure;
 
 namespace FvsBuild;
 
+/// <summary>
+/// Replaces the one-and-only GitHub release with what was just built (old
+/// :PUBLISH_RELEASE). Only reached when the build succeeded. Nothing is hardcoded:
+/// the repository is resolved from this folder's git remote via `gh repo view`, every
+/// pre-existing release is enumerated and removed so "latest and only" stays true,
+/// and the upload is verified BY HASH, not exit code - `gh release upload` once
+/// reported success while serving a two-day-old binary.
+/// </summary>
 /// <summary>Publish a complete verified draft before changing the latest release.
 /// Old releases and tags remain available to interrupted downloads and older clients.</summary>
 internal static class GitHubReleasePublisher
@@ -18,7 +26,35 @@ internal static class GitHubReleasePublisher
         if (!Cli.TryCapture("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], out var repositories) || repositories.Count != 1)
             return false;
         string repo = repositories[0];
-        string[] assets = ReleaseAssets(exePath);
+        if (!File.Exists(exePath))
+        {
+            log.Warn("[PUBLISH] The installer is missing. Nothing was published.");
+            return false;
+        }
+
+        // REBRAND_03 — old-brand clients look for the previous download name in the latest
+        // release. That alias is created here, in a private temp folder, for the duration of the
+        // upload only, so no previous-brand file ever persists in the repository or obj/.
+        string aliasDirectory = Path.Combine(Path.GetTempPath(), "fvs-release-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(aliasDirectory);
+            string alias = Path.Combine(aliasDirectory, LegacyProductIdentity.DownloadName);
+            File.Copy(exePath, alias, overwrite: true);
+            return PublishAssets(ReleaseAssets(exePath, alias), tag, repo, exePath, log);
+        }
+        finally
+        {
+            try { if (Directory.Exists(aliasDirectory)) Directory.Delete(aliasDirectory, recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                log.Warn("[PUBLISH] Temporary release alias could not be removed: " + ex.Message);
+            }
+        }
+    }
+
+    private static bool PublishAssets(string[] assets, string tag, string repo, string exePath, BuildLog log)
+    {
         if (assets.Any(path => !File.Exists(path)))
         {
             log.Warn("[PUBLISH] A release asset is missing. Nothing was published.");
@@ -49,10 +85,10 @@ internal static class GitHubReleasePublisher
         return true;
     }
 
-    internal static string[] ReleaseAssets(string exePath) =>
+    internal static string[] ReleaseAssets(string exePath, string legacyAliasPath) =>
     [
         exePath,
-        Path.Combine("obj", "ReleaseAssets", LegacyProductIdentity.DownloadName),
+        legacyAliasPath,
         Path.Combine("obj", "ReleaseAssets", "FreeVideoStudio.App.update.zip"),
         Path.Combine("obj", "ReleaseAssets", RuntimePayloadManifest.FileName)
     ];

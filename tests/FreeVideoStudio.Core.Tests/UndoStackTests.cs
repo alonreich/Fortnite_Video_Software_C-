@@ -18,6 +18,7 @@ public class UndoStackTests
 
     private static UndoStack<Doc> NewStack(string initial = "a") => new(new Doc(initial));
 
+    // ── Basic movement ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void Apply_ThenUndo_RestoresThePreviousState()
@@ -68,18 +69,21 @@ public class UndoStackTests
         Assert.Equal("delete segment", s.NextRedoLabel);
     }
 
+    // ── U1: gesture coalescing ──────────────────────────────────────────────────────────────────
 
     [Fact]
     public void U1_OneDragCollapsesToASingleUndoEntry()
     {
         UndoStack<Doc> s = NewStack("start");
 
+        // 200 pointer-move updates, as a real drag produces.
         for (int i = 1; i <= 200; i++)
             s.Apply(new Doc("drag", i), "move zoom box", "zoom-edge");
 
         Assert.Equal(1, s.UndoCount);
         Assert.Equal(new Doc("drag", 200), s.Current);
 
+        // One Ctrl+Z undoes the WHOLE drag, back to before it began.
         s.Undo();
         Assert.Equal(new Doc("start"), s.Current);
     }
@@ -99,8 +103,8 @@ public class UndoStackTests
     {
         UndoStack<Doc> s = NewStack("a");
         s.Apply(new Doc("b"), "move zoom box", "zoom-edge");
-        s.EndGesture();
-        s.Apply(new Doc("c"), "move zoom box", "zoom-edge");
+        s.EndGesture();                                        // pointer released
+        s.Apply(new Doc("c"), "move zoom box", "zoom-edge");   // second, separate drag
 
         Assert.Equal(2, s.UndoCount);
     }
@@ -121,12 +125,13 @@ public class UndoStackTests
     {
         UndoStack<Doc> s = NewStack("a");
         s.Apply(new Doc("b"), "move", "k");
-        s.Apply(new Doc("c"), "delete segment");
-        s.Apply(new Doc("d"), "move", "k");
+        s.Apply(new Doc("c"), "delete segment");   // null key ends the gesture
+        s.Apply(new Doc("d"), "move", "k");        // same key, but the gesture was closed
 
         Assert.Equal(3, s.UndoCount);
     }
 
+    // ── U2: ceiling ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void U2_DepthIsCappedAndTheOldestEntriesAreDropped()
@@ -136,6 +141,7 @@ public class UndoStackTests
 
         Assert.Equal(5, s.UndoCount);
 
+        // Undoing all the way back reaches the oldest SURVIVING state, not the original.
         while (s.CanUndo) s.Undo();
         Assert.Equal(new Doc("s15"), s.Current);
     }
@@ -147,6 +153,7 @@ public class UndoStackTests
         Assert.Equal(40, NewStack().MaxDepth);
     }
 
+    // ── U3: redo invalidation ───────────────────────────────────────────────────────────────────
 
     [Fact]
     public void U3_EditingAfterUndoDiscardsTheRedoBranch()
@@ -164,6 +171,7 @@ public class UndoStackTests
         Assert.Equal(new Doc("d"), s.Current);
     }
 
+    // ── U4: no-op rejection ─────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void U4_ApplyingAnIdenticalStateDoesNotGrowTheStack()
@@ -178,6 +186,8 @@ public class UndoStackTests
     [Fact]
     public void U4_ANoOpDoesNotOpenAGestureWindow()
     {
+        // The trap: if a no-op registered its gesture key, the user's next REAL edit would be
+        // swallowed into it and become un-undoable on its own.
         UndoStack<Doc> s = NewStack("a");
         s.Apply(new Doc("a"), "no change", "k");
         s.Apply(new Doc("b"), "real edit", "k");
@@ -187,10 +197,14 @@ public class UndoStackTests
         Assert.Equal(new Doc("a"), s.Current);
     }
 
+    // ── Re-entrancy ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void RestoringDoesNotRecordHistory()
     {
+        // A Changed handler that writes back into the stack — the shape of a real UI, where undo
+        // updates controls whose change events call Apply. Without the guard the history grows on
+        // every Ctrl+Z and undo can never reach the beginning.
         UndoStack<Doc> s = NewStack("a");
         s.Apply(new Doc("b"), "to b");
 
@@ -256,6 +270,7 @@ public class UndoStackTests
         Assert.Equal(4, fired);
     }
 
+    // ── Reset ───────────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     public void Reset_ClearsBothBranchesAndDoesNotRecordHistory()
@@ -271,6 +286,7 @@ public class UndoStackTests
         Assert.False(s.CanRedo);
     }
 
+    // ── Persistence round trip ──────────────────────────────────────────────────────────────────
 
     [Fact]
     public void Restore_RebuildsHistorySoUndoSurvivesAWindowClose()

@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -15,7 +18,7 @@ namespace FreeVideoStudio.App.ViewModels;
 
 public sealed class ExportViewModel : ViewModelBase
 {
-    private int _qualitySliderValue = QualityLadder.DefaultIndex;
+    private int _qualitySliderValue = QualityLadder.DefaultIndex;   // QUALITY_01
     private double? _targetMbOverride;
     private string _hardwareMode = "Auto";
     private string _hardwareStatusText = "HW: Detecting…";
@@ -46,6 +49,9 @@ public sealed class ExportViewModel : ViewModelBase
     public int QualitySliderValue
     {
         get => _qualitySliderValue;
+        // QUALITY_01 — the dial is a TIER index now, not a 0-20 megabyte step. An index restored
+        // from an older session is clamped rather than rejected; the top stop still means
+        // "no size limit", so the one setting anybody deliberately chose survives the change.
         set => SetProperty(ref _qualitySliderValue, QualityLadder.ClampIndex(value));
     }
 
@@ -179,7 +185,7 @@ public sealed class ExportViewModel : ViewModelBase
             _hardwareMode = HardwareScanner.ScanFailed;
             HardwareStatusText = "HW: Detecting…";
             HardwareStatusColor = "#daa520";
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -212,7 +218,7 @@ public sealed class ExportViewModel : ViewModelBase
         }
         catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return true;
         }
         return false;

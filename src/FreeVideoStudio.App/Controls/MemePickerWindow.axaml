@@ -1,18 +1,50 @@
 ﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:CompileBindings="True"
-        xmlns:local="clr-namespace:FreeVideoStudio.App"
+        xmlns:local="clr-namespace:FreeVideoStudio.App.Controls"
+        xmlns:vm="clr-namespace:FreeVideoStudio.App.ViewModels"
+        x:DataType="vm:MemeChoiceViewModel"
         x:Class="FreeVideoStudio.App.Controls.MemePickerWindow"
         Title="Choose a meme"
-        MinWidth="520" MinHeight="460"
+        MinWidth="640" MinHeight="700" Width="720" Height="860"
         Background="{DynamicResource AppSurfaceBrush}"
         CanResize="True"
         WindowStartupLocation="CenterOwner"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="30">
 
+    <!-- MEMEMODE_01 — the two choice cards and the corner/size buttons. Selected = accent frame. -->
+    <Window.Styles>
+        <Style Selector="Button.MemeCard">
+            <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.MemeCard.Selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="BorderThickness" Value="3"/>
+        </Style>
+        <Style Selector="Button.MemeOption">
+            <Setter Property="MinWidth" Value="88"/>
+            <Setter Property="Background" Value="{DynamicResource AppPanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.MemeOption.Selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+    </Window.Styles>
+
     <Grid>
         <Border Background="{DynamicResource AppSurfaceBrush}" Padding="0" BorderBrush="{DynamicResource WindowTitleBorder}" BorderThickness="3">
-            <Grid RowDefinitions="30, Auto, *, Auto">
+            <Grid RowDefinitions="30, Auto, Auto, *, Auto, Auto">
                 <Border Grid.Row="0" Background="{DynamicResource TitleBarBackground}">
                     <TextBlock Text="Choose a meme" Classes="WindowTitleText" Foreground="{DynamicResource TitleBarForeground}" />
                 </Border>
@@ -22,29 +54,108 @@
                                FontSize="{DynamicResource AppFontSize14}" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
                     <TextBlock Name="ExplainText" TextWrapping="Wrap"
                                FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextMutedBrush}"
-                               Text="Your gameplay pauses at this point, the meme plays all the way through, then the gameplay carries on from the exact frame it stopped on."/>
+                               Text="Pick a meme, then choose how it plays: full screen (the gameplay pauses for it) or in a corner over the running gameplay."/>
                     <TextBlock Name="EmptyText" IsVisible="False" TextWrapping="Wrap"
                                FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppWarningBrush}"
-                               Text="There are no memes in your meme folder yet. Close this, and use 'Download more meme videos' in the meme list on the main screen."/>
+                               Text="No memes to show. Use ⬇ More videos or ⬇ More pictures to fetch memes from the online library."/>
+                    <TextBlock Name="StatusText" IsVisible="False" TextWrapping="Wrap"
+                               FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextMutedBrush}"/>
                 </StackPanel>
 
-                <ListBox Grid.Row="2" Name="MemeList" Margin="15,0,15,0"
+                <!-- MEMEPICK_01 — search plus the two download buttons. The download rows used to
+                     exist only in the main-screen combo, so a user inside the editor had to close it
+                     to get more memes. -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="15,0,15,8">
+                    <TextBox Grid.Column="0" Name="SearchBox" Watermark="Search memes by name…" MinHeight="32"/>
+                    <Button Grid.Column="1" Name="DownloadVideosBtn" Classes="Secondary" Content="⬇ More videos" Margin="8,0,0,0" Cursor="Hand"
+                            ToolTip.Tip="Fetch more video memes from the official library. Files you already have are skipped, never overwritten."/>
+                    <Button Grid.Column="2" Name="DownloadPicturesBtn" Classes="Secondary" Content="⬇ More pictures" Margin="8,0,0,0" Cursor="Hand"
+                            ToolTip.Tip="Fetch more still-image memes from the official library. Files you already have are skipped, never overwritten."/>
+                </Grid>
+
+                <ListBox Grid.Row="3" Name="MemeList" Margin="15,0,15,0"
                          Background="{DynamicResource AppSurfaceBrush}" CornerRadius="4"
                          ScrollViewer.VerticalScrollBarVisibility="Auto">
                     <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="local:MemeItem">
-                            <Border Padding="6,4" CornerRadius="4" Cursor="Hand">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="{CompiledBinding FileName}" VerticalAlignment="Center"
-                                               Foreground="{DynamicResource AppTextPrimaryBrush}"
-                                               FontSize="{DynamicResource AppFontSize11}" TextTrimming="CharacterEllipsis"/>
+                        <DataTemplate x:DataType="local:MemePickerRow">
+                            <Border Padding="6,4" CornerRadius="4" Cursor="Hand" ToolTip.Tip="{CompiledBinding Tip}">
+                                <Grid ColumnDefinitions="Auto,*">
+                                    <Border Grid.Column="0" Width="96" Height="54" CornerRadius="4" ClipToBounds="True"
+                                            Background="{DynamicResource AppPanelBrush}" Margin="0,0,10,0">
+                                        <Panel>
+                                            <TextBlock Text="{CompiledBinding KindIcon}" FontSize="{DynamicResource AppFontSize14}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{CompiledBinding !HasThumbnail}"/>
+                                            <Image Source="{CompiledBinding Thumbnail}" Stretch="UniformToFill"
+                                                   IsVisible="{CompiledBinding HasThumbnail}"/>
+                                        </Panel>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock Text="{CompiledBinding FileName}"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                   FontSize="{DynamicResource AppFontSize11}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{CompiledBinding Details}"
+                                                   Foreground="{DynamicResource AppTextMutedBrush}"
+                                                   FontSize="{DynamicResource AppFontSize10}"/>
+                                        <TextBlock Text="⚠ Landscape — will be letterboxed in portrait"
+                                                   IsVisible="{CompiledBinding RatioWarning}"
+                                                   Foreground="{DynamicResource AppDangerBrush}"
+                                                   FontSize="{DynamicResource AppFontSize10}"/>
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="15" Margin="0,15,0,20">
+                <!-- MEMEMODE_01 — how the meme plays. Shown once a meme is chosen. -->
+                <StackPanel Grid.Row="4" Margin="15,12,15,0" Spacing="10" IsVisible="{CompiledBinding HasMeme}">
+                    <Grid ColumnDefinitions="*,12,*">
+                        <Button Grid.Column="0" Classes="MemeCard" Classes.Selected="{CompiledBinding IsFullScreen}"
+                                Command="{CompiledBinding FullScreenCommand}"
+                                ToolTip.Tip="The gameplay pauses, the meme fills the screen, then the gameplay carries on from the exact frame it stopped on.">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="FULL SCREEN" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                <TextBlock Text="Interrupt the gameplay" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                <TextBlock Text="{CompiledBinding FullScreenLengthText}" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextMutedBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Classes="MemeCard" Classes.Selected="{CompiledBinding IsCorner}"
+                                Command="{CompiledBinding CornerCommand}"
+                                ToolTip.Tip="The meme plays in a corner on top of the gameplay. Nothing pauses and nothing after it moves.">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="CORNER OVERLAY" FontWeight="Bold" FontSize="{DynamicResource AppFontSize14}" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                <TextBlock Text="Keep gameplay running" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                <TextBlock Text="Video length stays the same" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextMutedBrush}"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,24,Auto,24,*" IsVisible="{CompiledBinding IsCorner}">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Corner" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextMutedBrush}"/>
+                            <Grid ColumnDefinitions="Auto,6,Auto" RowDefinitions="Auto,6,Auto">
+                                <Button Grid.Row="0" Grid.Column="0" Classes="MemeOption" Classes.Selected="{CompiledBinding IsTopLeft}" Content="↖ Top left" Command="{CompiledBinding TopLeftCommand}"/>
+                                <Button Grid.Row="0" Grid.Column="2" Classes="MemeOption" Classes.Selected="{CompiledBinding IsTopRight}" Content="Top right ↗" Command="{CompiledBinding TopRightCommand}"/>
+                                <Button Grid.Row="2" Grid.Column="0" Classes="MemeOption" Classes.Selected="{CompiledBinding IsBottomLeft}" Content="↙ Bottom left" Command="{CompiledBinding BottomLeftCommand}"/>
+                                <Button Grid.Row="2" Grid.Column="2" Classes="MemeOption" Classes.Selected="{CompiledBinding IsBottomRight}" Content="Bottom right ↘" Command="{CompiledBinding BottomRightCommand}"/>
+                            </Grid>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="4">
+                            <TextBlock Text="Size" FontSize="{DynamicResource AppFontSize11}" Foreground="{DynamicResource AppTextMutedBrush}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button Classes="MemeOption" Classes.Selected="{CompiledBinding IsSmall}" Content="Small" Command="{CompiledBinding SmallCommand}"/>
+                                <Button Classes="MemeOption" Classes.Selected="{CompiledBinding IsMedium}" Content="Medium" Command="{CompiledBinding MediumCommand}"/>
+                                <Button Classes="MemeOption" Classes.Selected="{CompiledBinding IsLarge}" Content="Large" Command="{CompiledBinding LargeCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <CheckBox Grid.Column="4" VerticalAlignment="Bottom" Content="Play meme sound"
+                                  IsChecked="{CompiledBinding PlaySound}" Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                  ToolTip.Tip="Mix the meme's own sound over the gameplay while it shows."/>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="15" Margin="0,15,0,20">
                     <Button Name="CancelBtn" Classes="Secondary" Content="CANCEL" MinWidth="130" Cursor="Hand" IsCancel="True"/>
                     <Button Name="UseBtn" Classes="Success" Content="USE THIS MEME" MinWidth="170" Cursor="Hand" IsDefault="True" IsEnabled="False"/>
                 </StackPanel>

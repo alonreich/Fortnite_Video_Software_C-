@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 
 using System.Numerics;
 using System.Text.RegularExpressions;
@@ -400,6 +403,25 @@ public static class CoordinateMath
         var maxY = Max(minY, new Frac(CoordinateConstants.PortraitH - paddingBottomUi, 1) - fh);
         var maxX = Max(Frac.Zero, new Frac(CoordinateConstants.PortraitW, 1) - fw);
 
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // RATIOLOCK_01 — THE 27-PIXEL POSITION GRID IS GONE.
+        //
+        // This used to snap X and Y onto a grid of BackendScale.Den (= 27) content pixels, for the
+        // same reason the size quantizer used 32: a content coordinate that is a multiple of 27
+        // converts to backend space (x * 32/27) as an exact integer.
+        //
+        // It is the single largest contributor to the composer feeling broken. Dragging an element
+        // moved it in 27-pixel lurches, and it applied whether or not the SNAP checkbox was ticked
+        // — so the control that was supposed to turn snapping off could not, because this snap was
+        // underneath it and invisible. Every resize went through here too (the anchor is clamped),
+        // so it staircased the resize as well.
+        //
+        // And it was never needed: MobileFilterBuilder already rounds the backend position it
+        // computes from these values (ScaleRound on lxRaw/lyRaw), so a non-multiple costs at most
+        // half a backend pixel. What is left here is the clamp that actually matters — the element
+        // must stay inside the 1080-wide frame and inside the content band between the two 150px
+        // text strips.
+        // ══════════════════════════════════════════════════════════════════════════════════════
         int rawX = ScaleRound(Max(Frac.Zero, Min(fx, maxX)));
         int rawY = ScaleRound(Max(minY, Min(fy, maxY)));
 
@@ -498,6 +520,8 @@ public static class CoordinateMath
 
         int rw = Math.Max(step, ScaleRound(rawW / new Frac(step, 1)) * step);
 
+        // The height is NOT quantized on its own — that is the whole point. It is the width put
+        // through the source rectangle's exact ratio, then snapped to the same even step.
         Frac exactH = new Frac(rw, 1) * new Frac(safeH, safeW);
         int rh = Math.Max(step, ScaleRound(exactH / new Frac(step, 1)) * step);
 

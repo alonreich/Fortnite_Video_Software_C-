@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using FreeVideoStudio.Core.Media;
 using System.Text.Json.Nodes;
 
@@ -29,20 +32,29 @@ public static class Phase4Gate
         var (duckChains, duckFinalLabel) = AudioFilterChain.Build(
             null, 0, 10.0, 1.0, false, 0, null, 48000,
             new List<MusicTrack> { new MusicTrack("music.mp3", 0, 10.0) },
-            1, 10.0, "[0:a]", 0.0);
+            1, 10.0, "[0:a]");
         string duckFilter = string.Join(";", duckChains);
 
         var duckChecks = new (string Needle, string Why)[]
         {
-            ("acrossover=split=250",                              "250 Hz music split"),
-            ("[mus_high][trig_final]sidechaincompress=",           "ducking applied to the HIGH band only"),
+            // DUCKMB_01 — multiband: low band untouched, mid ducked + carved, high ducked.
+            ($"acrossover=split='{AudioFilterChain.CrossoverLowHz} {AudioFilterChain.CrossoverHighHz}'[mus_low][mus_mid][mus_high]",
+                                                                   "three-band music split"),
+            ("[mus_mid][trig_0]sidechaincompress=",                "ducking on the MID band"),
+            ("[mus_high][trig_1]sidechaincompress=",               "ducking on the HIGH band"),
+            ("[mus_mid_c0][trig_2]sidechaincompress=",             "dynamic speech carve on the ducked MID band"),
             ($"threshold={SidechainCompressNode.TunedThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
              $":ratio={SidechainCompressNode.TunedRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
                                                                    "tuned ducking threshold/ratio"),
-            ("[mus_low][mus_high_ducked]amix=",                    "low + ducked-high recombine (:234)"),
+            ("[mus_low][mus_mid_c2][mus_high_c1]amix=inputs=3",    "three bands recombined"),
             ("[game_trig]highpass=f=200,lowpass=f=3500",           "sidechain trigger band-pass"),
-            ("[game_leveled]asplit=2[game_out_pre_raw][game_trig]",    "split happens AFTER levelling, so ducking is source-level independent"),
+            ("[game_leveled]asplit=2[game_out_pre][game_trig]",    "split happens AFTER the fader and voice mix"),
         };
+        if (duckFilter.Contains("equalizer=f=2000"))
+        {
+            Console.WriteLine("Audio Ducking Error: the static 2 kHz carve EQ is back — carving must be dynamic (DUCKMB_01).");
+            return Task.FromResult(1);
+        }
         foreach (var (needle, why) in duckChecks)
         {
             if (!duckFilter.Contains(needle))
@@ -54,9 +66,9 @@ public static class Phase4Gate
         }
 
         string tempoProbe = duckFilter.Replace("asetpts", "");
-        if (tempoProbe.Contains("atempo") || tempoProbe.Contains("setpts"))
+        if (tempoProbe.Contains("atempo") || tempoProbe.Contains("rubberband") || tempoProbe.Contains("setpts"))
         {
-            Console.WriteLine("Audio Ducking Error: music chain contains atempo/setpts — background music must stay at 1.0x.");
+            Console.WriteLine("Audio Ducking Error: music chain contains atempo/rubberband/setpts — background music must stay at 1.0x.");
             Console.WriteLine($"Actual chain:\n{duckFilter}");
             return Task.FromResult(1);
         }
@@ -67,6 +79,11 @@ public static class Phase4Gate
             return Task.FromResult(1);
         }
 
+        // DUCKOFF_01 — UNCHECKED MUST MEAN ABSENT, NOT NEUTRALISED.
+        // "ducking off" used to ship threshold=1/ratio=1 into a sidechaincompress that still ran,
+        // behind an acrossover split-and-sum that still ran, fed by a trigger bus that still ran.
+        // Level-transparent, but not nothing. This asserts the filters are GONE from the graph,
+        // and that carving off removes its equalizer too.
         var (offChains, offFinalLabel) = AudioFilterChain.Build(
             new JsonObject
             {
@@ -77,16 +94,16 @@ public static class Phase4Gate
             },
             0, 10.0, 1.0, false, 0, null, 48000,
             new List<MusicTrack> { new MusicTrack("music.mp3", 0, 10.0) },
-            1, 10.0, "[0:a]", 0.0);
+            1, 10.0, "[0:a]");
         string offFilter = string.Join(";", offChains);
 
         var mustBeAbsent = new (string Needle, string Why)[]
         {
             ("sidechaincompress", "the compressor itself"),
-            ("acrossover",        "the 250 Hz split that only existed to feed the compressor"),
+            ("acrossover",        "the band split that only exists to feed the compressors"),
             ("mus_high",          "the ducked high band"),
             ("mus_low",           "the untouched low band"),
-            ("trig_final",        "the sidechain trigger bus"),
+            ("trig_",             "the sidechain trigger bus"),
             ("game_trig",         "the asplit branch that fed the trigger bus"),
             ("asplit",            "the split itself — nothing consumes a second game copy now"),
             ("agate",             "the trigger gate"),
@@ -108,6 +125,7 @@ public static class Phase4Gate
             return Task.FromResult(1);
         }
 
+        // The music must still REACH the mix — "no processing" is not "no music".
         if (!offFilter.Contains("amix=inputs=2"))
         {
             Console.WriteLine("Audio Bypass Error: music never reaches the final amix with ducking off.");
@@ -115,9 +133,16 @@ public static class Phase4Gate
             return Task.FromResult(1);
         }
 
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // CUT_01 — the cut feature's proof. A cut is the mirror of a freeze: it consumes source
+        // time and occupies NO output time. These assertions pin the three things that can
+        // silently rot: the arithmetic, the agreement between the timeline model and the emitted
+        // graph, and the absence of deleted footage from the filter graph.
+        // ══════════════════════════════════════════════════════════════════════════════════
         {
             const double ClipMs = 60000;
 
+            // 1. ARITHMETIC. Removing 10s from a 60s clip must leave exactly 50s.
             var oneCut = new List<OutputTimeline.Cut> { new(20, 30) };
             var tl = OutputTimeline.Create(ClipMs, null, 1.0, 0, null, oneCut);
             if (Math.Abs(tl.TotalOutputSeconds - 50.0) > 0.01)
@@ -131,6 +156,9 @@ public static class Phase4Gate
                 return Task.FromResult(1);
             }
 
+            // 2. THE JOIN. A moment INSIDE a cut maps to the instant the footage resumes, and
+            //    everything after a cut slides earlier by exactly the cut's length. THIS is why
+            //    voice-overs and memes stay aligned across a cut without touching their code.
             if (Math.Abs(tl.SourceToOutput(25.0) - tl.SourceToOutput(30.0)) > 0.01)
             {
                 Console.WriteLine("Cut Error: a source moment inside a cut did not map to the join.");
@@ -142,6 +170,7 @@ public static class Phase4Gate
                 return Task.FromResult(1);
             }
 
+            // 3. THE PREVIEW COMPOSITION can never land on a deleted frame.
             for (int i = 0; i <= 500; i++)
             {
                 double outSec = tl.TotalOutputSeconds * i / 500.0;
@@ -153,6 +182,8 @@ public static class Phase4Gate
                 }
             }
 
+            // 4. NORMALISATION. Overlapping and near-touching cuts must merge, or the chunk walk
+            //    emits chunks out of source order and every mapping built on it is corrupt.
             var messy = new List<OutputTimeline.Cut> { new(10, 20), new(15, 25), new(25.1, 30), new(40, 40.01) };
             var clean = OutputTimeline.NormalizeCuts(messy, 60.0);
             if (clean.Count != 1 || Math.Abs(clean[0].StartSec - 10.0) > 0.001 || Math.Abs(clean[0].EndSec - 30.0) > 0.001)
@@ -162,6 +193,7 @@ public static class Phase4Gate
                 return Task.FromResult(1);
             }
 
+            // 5. THE GRAPH AGREES WITH THE MODEL, and never trims deleted footage.
             var withSpeed = new List<SpeedSegment> { new SpeedSegment(30000, 40000, 0.5) };
             var cutList = new List<OutputTimeline.Cut> { new(10, 15) };
             var (cutGraph, _, _, _, cutDuration, _) = GranularSpeedBuilder.Build(
@@ -188,12 +220,15 @@ public static class Phase4Gate
                 }
             }
 
+            // 6. DE-CLICK. Every splice must carry the short fade, or a jump cut pops.
             if (!cutGraph.Contains("afade=t=in:st=0:d=0.008"))
             {
                 Console.WriteLine("Cut Error: splice de-click fade missing from the audio chunks.");
                 return Task.FromResult(1);
             }
 
+            // 7. A CUT COSTS HALF WHAT A SPEED SEGMENT COSTS. This is the number the pre-export
+            //    RAM warning is built on; if it drifts, the warning lies.
             if (OutputTimeline.Create(ClipMs, null, 1.0, 0, null, oneCut).ExtraChunkCost() != 1)
             {
                 Console.WriteLine("Cut Error: a mid-clip cut should cost exactly 1 extra chunk.");
@@ -206,6 +241,7 @@ public static class Phase4Gate
                 return Task.FromResult(1);
             }
 
+            // 8. NO CUTS = NO CHANGE. The regression guard for every existing project.
             var before = GranularSpeedBuilder.Build(ClipMs, withSpeed, 1.0, 0, "[0:v]", "[0:a]", "60", needHudBranch: false);
             var after = GranularSpeedBuilder.Build(ClipMs, withSpeed, 1.0, 0, "[0:v]", "[0:a]", "60", needHudBranch: false,
                                                    cuts: new List<OutputTimeline.Cut>());

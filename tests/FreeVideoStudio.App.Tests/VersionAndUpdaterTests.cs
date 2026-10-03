@@ -87,14 +87,17 @@ public sealed class VersionAndUpdaterTests : IDisposable
     [Fact]
     public void SkippedVersion_GetAndClear_WorksWithUiStateStore()
     {
+        // Act: Initially empty
         UpdateService.ClearSkippedVersion();
         string initial = UpdateService.GetSkippedVersion();
         Assert.Equal(string.Empty, initial);
 
+        // Act: Store skipped tag into state
         UiStateStore.WriteText("update_skipped_tag.txt", "v2026.09.99.9999");
         string readBack = UpdateService.GetSkippedVersion();
         Assert.Equal("v2026.09.99.9999", readBack);
 
+        // Act: Clear skipped tag
         UpdateService.ClearSkippedVersion();
         string cleared = UpdateService.GetSkippedVersion();
         Assert.Equal(string.Empty, cleared);

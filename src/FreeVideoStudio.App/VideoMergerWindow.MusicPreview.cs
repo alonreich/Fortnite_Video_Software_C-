@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using FreeVideoStudio.Core.Media;
@@ -40,6 +46,8 @@ public partial class VideoMergerWindow
         var r = _musicResult;
         if (r == null || string.IsNullOrEmpty(r.MusicFilePath)) return Array.Empty<MusicBedSegment>();
 
+        // MERGEPREVIEW_01 — the same mapping the export uses (MusicExportSec / MUSICMAP_01): speed
+        // ramps, freezes, memes and cuts before the music start move it; the base speed alone is the fallback.
         double startDelay = _plan?.OutputSecAt(r.TimelineStartSeconds) ?? r.TimelineStartSeconds / speed;
         double bed = (_plan?.OutputSecAt(r.TimelineEndSeconds) ?? r.TimelineEndSeconds / speed) - startDelay;
         if (bed <= 0) bed = 1.0;
@@ -96,7 +104,7 @@ public partial class VideoMergerWindow
         }
         if (++_mergerMusicStrikes < Infrastructure.PreviewAudioSync.DriftStrikes) return;
         _mergerMusicStrikes = 0;
-        _ = _mergerMusicClient.SendCommandAsync("seek", w.PositionSec, "absolute");
+        _ = _mergerMusicClient.SendCommandAsync("seek", w.PositionSec, "absolute");   // seek, never re-rate
         _mergerMusicHoldUntil = Environment.TickCount64 + MergerMusicSettleMs;
     }
 
@@ -116,9 +124,8 @@ public partial class VideoMergerWindow
                 await _mergerMusicClient.StartAudioOnlyAsync(mpvExe);
             }
 
-            double master = VolumeSliderCtl?.Value ?? 100.0;
-            await _mergerMusicClient.SetPreviewVolumeAsync(master * _musicResult.MusicVolume);
-            await _mergerMusicClient.SetPropertyDoubleAsync("speed", 1.0);
+            await _mergerMusicClient.ApplyPreviewGainAsync(_musicResult.MusicVolume);   // AUD-MASTERVOL
+            await _mergerMusicClient.SetPropertyDoubleAsync("speed", 1.0);   // the music never changes speed
             await _mergerMusicClient.LoadFileAsync(path, Math.Max(0, positionSec));
 
             _mergerMusicPath = path;

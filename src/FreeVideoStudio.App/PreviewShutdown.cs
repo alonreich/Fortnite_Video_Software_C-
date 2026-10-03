@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,7 +25,7 @@ public enum PreviewShutdownStatus
 }
 
 /// <summary>
-/// MPVSHUTDOWN_01 â€” the awaitable completion contract of a preview teardown.
+/// MPVSHUTDOWN_01 — the awaitable completion contract of a preview teardown.
 ///
 /// <para>
 /// A failed teardown is a RESULT, never an exception and never a silent "best effort": the caller
@@ -44,7 +46,7 @@ public sealed record PreviewShutdownResult(PreviewShutdownStatus Status, string?
 }
 
 /// <summary>
-/// MPVSHUTDOWN_01 â€” the two halves of preview shutdown as pure, testable logic.
+/// MPVSHUTDOWN_01 — the two halves of preview shutdown as pure, testable logic.
 ///
 /// <para>
 /// <b>Idempotency:</b> <see cref="RunAsync"/> returns the SAME in-flight operation to every caller;
@@ -53,7 +55,7 @@ public sealed record PreviewShutdownResult(PreviewShutdownStatus Status, string?
 /// </para>
 ///
 /// <para>
-/// <b>Phase A â€” quiescence:</b> <see cref="QuiesceAsync"/> awaits worker completion tasks with a
+/// <b>Phase A — quiescence:</b> <see cref="QuiesceAsync"/> awaits worker completion tasks with a
 /// bounded <see cref="Task.WhenAny"/>. There is no <c>Thread.Join</c> anywhere: waiting is
 /// asynchronous, and the UI thread is never the thread that blocks.
 /// </para>
@@ -73,7 +75,7 @@ internal sealed class PreviewShutdownCoordinator
     /// <summary>
     /// Runs (or attaches to) the one shutdown workflow this coordinator will ever have in flight.
     /// <paramref name="core"/> performs the actual two-phase teardown; it may be invoked more than
-    /// once across separate calls ONLY after a FAILED attempt (retrying a failed teardown is safe â€”
+    /// once across separate calls ONLY after a FAILED attempt (retrying a failed teardown is safe —
     /// signalling is idempotent and nothing was freed), never after a successful one.
     /// </summary>
     public Task<PreviewShutdownResult> RunAsync(
@@ -117,7 +119,7 @@ internal sealed class PreviewShutdownCoordinator
     }
 
     /// <summary>
-    /// MPVSHUTDOWN_01 â€” PHASE A. Awaits proof that every worker stopped, in bounded time.
+    /// MPVSHUTDOWN_01 — PHASE A. Awaits proof that every worker stopped, in bounded time.
     /// Completed/never-started workers (null entries) do not count against the timeout.
     /// </summary>
     public static async Task<PreviewShutdownResult> QuiesceAsync(

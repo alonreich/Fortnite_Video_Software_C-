@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.IO;
 using FreeVideoStudio.Core.Infrastructure;
@@ -19,11 +22,11 @@ public sealed class VoiceOverPreviewTake : IDisposable
     {
         try { Player.Dispose(); } catch (System.Exception swallowed)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
         try { Reader.Dispose(); } catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
     }
 }
@@ -64,6 +67,7 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
 
     public void Reload()
     {
+        // Only copy immutable take descriptions here. File.Exists and device creation run below.
         var candidates = _result?.VoiceOverTakes?.ToArray() ?? [];
         if (candidates.Length == 0 && !string.IsNullOrWhiteSpace(_result?.VoiceOverWavPath))
             candidates = [new(_result.VoiceOverWavPath, _result.VoiceOverStartTimestampSec)];
@@ -107,7 +111,7 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
                         try
                         {
                             reader = new(take.Path);
-                            player = Infrastructure.PreviewAudioSync.CreateVoicePlayer();
+                            player = Infrastructure.PreviewAudioSync.CreateVoicePlayer();   // MUSICSYNC_02
                             player.Init(reader);
                             _takes.Add(new() { Take = take, Reader = reader, Player = player });
                         }
@@ -121,16 +125,19 @@ public sealed class VoiceOverPreviewPlayer : IDisposable
                     revision = request.Revision;
                 }
                 if (_disposed) break;
+                // Loading takes can be slow. Let the latest queued playback position win first.
                 if (_pending.Reader.TryPeek(out _)) continue;
                 foreach (var take in _takes)
                 {
                     try
                     {
-                        take.Reader.Volume = MpvIpcClient.GlobalMasterVolume / 100f;
+                        take.Reader.Volume = (float)MpvIpcClient.MasterLinearGain;   // VOLCURVE_01
                         take.StartProjectSec = request.Mapper(take.Take.StartSec);
                         double voiceTime = request.Time - take.StartProjectSec;
                         bool play = (!request.Paused || request.Frozen) && !request.Ended &&
                             voiceTime >= 0 && voiceTime <= take.Reader.TotalTime.TotalSeconds;
+                        // MUSICSYNC_02 — shared follower rule: seek-only correction, reader lead
+                        // compensated, 0.12 s tolerance confirmed twice (was 0.5 s, uncompensated).
                         Infrastructure.PreviewAudioSync.SyncVoiceTake(take.Reader, take.Player, play, voiceTime, ref take.DriftStrikes);
                     }
                     catch (Exception ex) { CoreLogger.Swallowed(ex); }

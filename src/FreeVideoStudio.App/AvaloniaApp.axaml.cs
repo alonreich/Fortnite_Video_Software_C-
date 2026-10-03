@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -34,6 +37,32 @@ public partial class AvaloniaApp : Application
         catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
     }
 
+    /// <summary>
+    /// AUD-MASTERVOL / VOLSHARED_01 — seed the suite master from what was saved (level from the
+    /// session state, mute from settings), then start the central persistence and the Windows
+    /// Volume Mixer sync (VOLSYNC_01). Never for the install/cleanup workers.
+    /// </summary>
+    private static void StartSharedMasterVolume(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        try
+        {
+            var paths = FreeVideoStudio.Core.Infrastructure.ApplicationPaths.CreateDefault();
+            if (System.IO.File.Exists(paths.SessionStateFile)
+                && System.Text.Json.Nodes.JsonNode.Parse(System.IO.File.ReadAllText(paths.SessionStateFile)) is System.Text.Json.Nodes.JsonObject state
+                && state["MainVolume"] is System.Text.Json.Nodes.JsonNode v
+                && double.TryParse(v.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double level))
+            {
+                FreeVideoStudio.Core.Media.MpvIpcClient.SetGlobalMasterVolume((int)System.Math.Round(level));
+            }
+        }
+        catch (System.Exception ex) { RuntimeLog.Swallowed(ex); }
+
+        FreeVideoStudio.Core.Media.MpvIpcClient.SetGlobalMuted(Infrastructure.SettingsManager.Instance.PreviewMuted);
+        Infrastructure.MasterVolumePersistence.Start();
+        Infrastructure.WindowsAudioSessionSync.Start();
+        desktop.Exit += (_, _) => Infrastructure.WindowsAudioSessionSync.Stop();
+    }
+
     public override void OnFrameworkInitializationCompleted()
     {
         FreeVideoStudio.Core.Media.VideoRenderMode.Initialize();
@@ -53,6 +82,8 @@ public partial class AvaloniaApp : Application
             bool isCleanupWorker = System.Linq.Enumerable.Any(argsList, a => a.Equals("--cleanup-worker", System.StringComparison.OrdinalIgnoreCase));
             bool isCropTool = System.Linq.Enumerable.Any(argsList, a => a.Equals("--crop-tool", System.StringComparison.OrdinalIgnoreCase));
             bool isMerger = System.Linq.Enumerable.Any(argsList, a => a.Equals("--merger", System.StringComparison.OrdinalIgnoreCase));
+
+            if (!isInstallWorker && !isCleanupWorker) StartSharedMasterVolume(desktop);
 
             if (isInstallWorker || isCleanupWorker)
             {
@@ -81,7 +112,7 @@ public partial class AvaloniaApp : Application
                     catch (System.Exception ex)
                     {
                         window.ShowFailureAndWait(ex.Message);
-                        global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                        global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                         return;
                     }
                     

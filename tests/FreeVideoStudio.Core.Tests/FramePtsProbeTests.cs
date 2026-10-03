@@ -38,7 +38,7 @@ public class FramePtsProbeTests
     }
 
     [Theory]
-    [InlineData(60000, 1001)]
+    [InlineData(60000, 1001)]   // 59.94
     [InlineData(60, 1)]
     [InlineData(30, 1)]
     public void TrimStart_KeepsCutFrame_NeverPreviousFrame(int num, int den)

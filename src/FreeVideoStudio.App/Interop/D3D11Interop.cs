@@ -1,9 +1,29 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace FreeVideoStudio.App.Interop.D3D;
 
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// AOTCLEAN_03 — THE FIVE DIRECT3D CALLS THE PREVIEW NEEDS, WITHOUT VORTICE / SHARPGEN.
+//
+// MpvVideoView used Vortice.Direct3D11 + Vortice.DXGI for: creating one hardware device, creating
+// the shared keyed-mutex textures, QueryInterface to IDXGIKeyedMutex / IDXGIResource, reading the
+// shared handle, ReleaseSync, and Flush. (AcquireSync was already a raw vtable call.)
+//
+// Vortice sits on SharpGen.Runtime, whose TypeDataStorage registers COM callback vtables through
+// reflection over fields and properties. NativeAOT flagged that as IL2067/IL2072: members read by
+// reflection are not guaranteed to survive trimming. The app never implements a COM interface in
+// C#, so none of that machinery is needed; it was compiled in only because the package is.
+//
+// This file replaces the whole dependency with direct, blittable vtable calls. Every slot index,
+// IID and constant below was cross-checked against the Vortice 3.8.3 binaries it replaces and
+// the Windows SDK headers (d3d11.h, dxgi.h). The type and member names mirror Vortice's on
+// purpose, so the call sites in MpvVideoView read exactly as before.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
 
 internal enum DriverType : int { Hardware = 1 }
 

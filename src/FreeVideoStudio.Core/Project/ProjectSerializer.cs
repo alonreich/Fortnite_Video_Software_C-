@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
@@ -47,6 +50,7 @@ public static class ProjectSerializer
     private const string KeyAudio = "audio";
     private const string KeyExport = "export";
 
+    // PROJ_11 — schema 2. Both optional on read, so a v1 file loads with them absent.
     private const string KeyMask = "mask";
     private const string KeyMerge = "merge";
 
@@ -68,6 +72,9 @@ public static class ProjectSerializer
 
         JsonObject root = new();
 
+        // PROJ_03 — unknown keys go down FIRST so that a known key always wins on a collision. If a
+        // future build promotes one of these to a real field, this build's value for it is the one
+        // that survives, which is the conservative direction.
         if (doc.UnknownFields != null)
         {
             foreach (KeyValuePair<string, JsonNode?> kv in doc.UnknownFields)
@@ -108,6 +115,9 @@ public static class ProjectSerializer
                 ["speed"] = s.Speed,
                 ["zoom_slow"] = s.ZoomSlow,
             };
+            // Zoom fields are nullable as a set: a segment either carries a zoom box or it does
+            // not. Writing explicit nulls would bloat every file for the common case, so they are
+            // omitted and the reader treats absence as "no zoom".
             if (s.ZoomX.HasValue) o["zoom_x"] = s.ZoomX.Value;
             if (s.ZoomY.HasValue) o["zoom_y"] = s.ZoomY.Value;
             if (s.ZoomW.HasValue) o["zoom_w"] = s.ZoomW.Value;
@@ -115,25 +125,27 @@ public static class ProjectSerializer
             if (s.ZoomOrigRes != null) o["zoom_orig_res"] = s.ZoomOrigRes;
             if (s.ZoomStartMs.HasValue) o["zoom_start_ms"] = s.ZoomStartMs.Value;
             if (s.ZoomEndMs.HasValue) o["zoom_end_ms"] = s.ZoomEndMs.Value;
-            segments.AddNode(o);
+            segments.AddNode(o);   // AOTSAFETY_02
         }
         root[KeySegments] = segments;
 
         JsonArray cuts = new();
         foreach (OutputTimeline.Cut c in doc.Cuts)
-            cuts.AddNode(new JsonObject { ["start_sec"] = c.StartSec, ["end_sec"] = c.EndSec });
+            cuts.AddNode(new JsonObject { ["start_sec"] = c.StartSec, ["end_sec"] = c.EndSec });   // AOTSAFETY_02
         root[KeyCuts] = cuts;
 
         JsonArray memes = new();
         foreach (MemePlacement m in doc.Memes)
         {
-            memes.AddNode(new JsonObject
+            var memeObj = new JsonObject
             {
                 ["path"] = m.FilePath,
                 ["at_source_sec"] = m.AtSourceSecRelative,
                 ["duration_sec"] = m.DurationSec,
                 ["id"] = m.Id,
-            });
+            };
+            MemePresentationJson.Write(memeObj, m);   // MEMEMODE_01
+            memes.AddNode(memeObj);   // AOTSAFETY_02
         }
         root[KeyMemes] = memes;
 
@@ -158,21 +170,36 @@ public static class ProjectSerializer
             ["portrait_mode"] = doc.Export.PortraitMode,
         };
 
+        // PROJ_11 — the HUD mask. Absent, not null, when there is none: a v1 reader parks unknown
+        // keys in UnknownFields, and an explicit null there would be carried back out as a null
+        // "mask" key that a v2 reader then has to distinguish from "no mask". Omission is cleaner
+        // and the reader treats both the same way.
         if (doc.Mask is { } mask)
         {
             root[KeyMask] = new JsonObject
             {
                 ["profile_name"] = mask.ProfileName,
                 ["fingerprint"] = mask.Fingerprint,
+                // DeepClone, because the document is immutable and the caller keeps its instance.
+                // Handing the live JsonObject to the writer would let a later edit of the config
+                // mutate a document already on the undo stack.
                 ["config"] = mask.Config?.DeepClone(),
             };
         }
 
+        // PROJ_11 — the merge queue.
         if (doc.Merge is { HasClips: true } merge)
         {
             JsonArray clips = new();
             foreach (MergeClip c in merge.Clips)
             {
+                // AOTSAFETY_06 — the local is typed JsonNode so this binds to JsonArray.Add(JsonNode?)
+                // and NOT to the generic Add<T>, which carries RequiresUnreferencedCode /
+                // RequiresDynamicCode and would emit IL2026 + IL3050. PROJ-AOT is explicit that trim
+                // and AOT warnings here are FIXED, never suppressed: the warning is the analyser
+                // correctly pointing out that a generic JsonValue.Create path cannot survive
+                // TrimMode=full. The rest of this file already avoids it by construction; this call
+                // site is new, so it had to be told.
                 JsonNode clip = new JsonObject
                 {
                     ["path"] = c.FilePath,
@@ -187,6 +214,7 @@ public static class ProjectSerializer
                 ["base_speed"] = merge.BaseSpeed,
                 ["clips"] = clips,
             };
+            // PROJ_12 — the full edit list, in its own source-generated JSON shape (AOT-safe).
             if (merge.Edl is MergeEdl edl && JsonNode.Parse(edl.ToJson()) is JsonNode edlNode)
                 mergeObj["edl"] = edlNode;
             root[KeyMerge] = mergeObj;
@@ -297,13 +325,18 @@ public static class ProjectSerializer
                 if (node is not JsonObject o) continue;
                 string? path = ReadString(o, "path", null);
                 string? id = ReadString(o, "id", null);
+                // A meme without a path cannot be rendered and a meme without an id cannot be
+                // addressed in the filter graph. Either one missing makes the entry meaningless,
+                // so it is dropped rather than carried as a half-placement the user cannot see.
                 if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(id)) continue;
 
-                memes.Add(new MemePlacement(
+                // MEMEMODE_01 — a meme without the presentation keys (every file before it) is a
+                // full-screen cutaway with sound, exactly what it always was.
+                memes.Add(MemePresentationJson.Apply(o, new MemePlacement(
                     path!,
                     ReadDouble(o, "at_source_sec", 0),
                     ReadDouble(o, "duration_sec", MemePlacement.StillImageDurationSec),
-                    id!));
+                    id!)));
             }
         }
 
@@ -330,12 +363,17 @@ public static class ProjectSerializer
             PortraitMode = ReadBool(exportObj, "portrait_mode", true),
         };
 
+        // PROJ_11 — the HUD mask. Absent in every v1 file, so null is the normal answer, not a fault.
         ProjectMask? mask = null;
         if (root[KeyMask] is JsonObject maskObj)
         {
             JsonObject? cfg = maskObj["config"] as JsonObject;
             string profile = ReadString(maskObj, "profile_name", string.Empty) ?? string.Empty;
 
+            // ⚠️ The stored fingerprint is not trusted over the stored config. If a hand-edited file
+            // carries a fingerprint that does not describe its own config, the CONFIG is the work
+            // and the fingerprint is the checksum — recompute it, so the "is the live profile still
+            // the one this was built with" test compares like with like.
             string stored = ReadString(maskObj, "fingerprint", string.Empty) ?? string.Empty;
             string actual = ProjectMask.ComputeFingerprint(cfg);
 
@@ -345,6 +383,8 @@ public static class ProjectSerializer
                 cfg is null ? null : (JsonObject)cfg.DeepClone());
         }
 
+        // PROJ_11 — the merge queue. An entry with no path is dropped rather than restored as an
+        // empty row the user has to find and delete.
         ProjectMerge? merge = null;
         if (root[KeyMerge] is JsonObject mergeObj)
         {
@@ -360,6 +400,8 @@ public static class ProjectSerializer
                 }
             }
 
+            // PROJ_12 — a valid edit list wins; a missing or corrupt one leaves Edl null and
+            // ProjectMerge.ToEdl() migrates the legacy clip list instead.
             MergeEdl? edl = mergeObj["edl"] is JsonObject edlObj ? MergeEdl.FromJson(edlObj.ToJsonString()) : null;
             if (edl is { Clips.Count: 0 }) edl = null;
 
@@ -395,6 +437,11 @@ public static class ProjectSerializer
         };
     }
 
+    // ── Tolerant readers ────────────────────────────────────────────────────────────────────────
+    // Every one of these absorbs a missing key, an explicit null, and a value of the wrong JSON
+    // type. That last case is the one that matters: hand-edited and half-written files exist, and
+    // a InvalidOperationException thrown from deep inside a load is indistinguishable to the user
+    // from the app losing their work.
 
     private static string? ReadString(JsonObject? o, string key, string? fallback)
     {

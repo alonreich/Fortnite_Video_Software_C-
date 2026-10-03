@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -43,11 +49,11 @@ public partial class VideoMergerWindow
     private void InitializeSession()
     {
         VideoQueue.CollectionChanged += TrackClipIds;
-        InitializeHistory();
-        InitializeLanes();
-        InitializeTimelineSelection();
-        InitializeMergerGranular();
-        InitializeClipActions();
+        InitializeHistory();   // MERGEUNDO_01
+        InitializeLanes();     // LANES_01
+        InitializeTimelineSelection();   // ANTS_01
+        InitializeMergerGranular();      // MERGEEDIT_02
+        InitializeClipActions();         // CLIPACTIONS_01 (D20)
         _clipIds.Reset(VideoQueue.Count);
         this.Opened += async (s, e) => await RestoreSessionAsync();
     }
@@ -56,16 +62,21 @@ public partial class VideoMergerWindow
     {
         if (_clipIds.Apply(e, VideoQueue.Count))
             RuntimeLog.WarnThrottled("MERGER", "Clip id list re-synchronised with the queue.");
+        // REMOVEUX_01 — every user removal says how to get the clip back (undo/redo/restore do not).
         if (e.Action == NotifyCollectionChangedAction.Remove && !_restoringSession && !_applyingHistory)
             NoteClipsRemoved(e.OldItems?.Count ?? 1);
+        // EMPTYQUEUE_01 — no clips: no picture. A clip arrives: the surface is shown again.
         if (VideoQueue.Count == 0) ClearPreviewSurface();
         else if (_videoHost is { IsVisible: false } host) host.IsVisible = true;
         if (e.Action == NotifyCollectionChangedAction.Move)
         {
+            // D22 — a reorder never seeks: the list re-selecting the moved row must not start a preview.
             RuntimeLog.Info("MERGER", $"Reorder: clip {e.OldStartingIndex + 1} moved to position {e.NewStartingIndex + 1}; the playhead stays on its clip.");
             _selectWithoutPreview = true;
             Dispatcher.UIThread.Post(() => _selectWithoutPreview = false, DispatcherPriority.Background);
         }
+        // D20 — the timeline follows the list at once when nothing needs probing. EDLNULL_01: this runs
+        // INSIDE the queue's CollectionChanged, so nothing it throws may escape (it would end the app).
         try { RebuildTimelineFromCacheNow(); }
         catch (Exception ex)
         {
@@ -95,7 +106,7 @@ public partial class VideoMergerWindow
     /// <summary>Something the edit list records changed: capture once, soon, on the UI thread.</summary>
     private void NoteEdlChanged()
     {
-        _appliedSpeed = double.NaN;
+        _appliedSpeed = double.NaN;   // MERGEPREVIEW_01 — the wheel set mpv's speed directly; the tick re-asserts the schedule
         if (_restoringSession || _edlCapturePosted) return;
         _edlCapturePosted = true;
         Dispatcher.UIThread.Post(() =>
@@ -123,18 +134,21 @@ public partial class VideoMergerWindow
                 Music = _musicIsStale ? null : MusicStateFromResult(_musicResult),
             };
             var edl = MergerSession.Capture(state, AnalysisFor, FileIdentity, TimelineMatchesQueue() ? _timeline : null, _lastEdl);
+            // Stale music belongs to an older queue: keep its saved placement until the user re-sets it.
             if (_musicIsStale && _lastEdl?.Music is EdlMusic keep) edl = edl with { Music = keep };
 
             bool changed = !Equals(edl, _lastEdl);
             _lastEdl = edl;
-            RecordHistory(edl);
+            RecordHistory(edl);   // MERGEUNDO_01
             Services.ToolNavigator.PublishMergeEdl(edl);
             if (changed) MergerAutosave.Value.Schedule(edl);
-            if (changed) { UpdateEstimatedSize(); PaintMergedLength(); }
+            if (changed) { UpdateEstimatedSize(); PaintMergedLength(); }   // MERGESIZE_01 — effects/speed change the finished length
             if (flush) _ = MergerAutosave.Value.FlushAsync();
         }
         catch (Exception ex)
         {
+            // EDLNULL_01 — a failing capture means the autosave and the project stop following the
+            // queue. That must be LOUD in the log (it was a silent debug line and the queue froze).
             RuntimeLog.WarnThrottled("MERGER", $"Could not record the merge state (autosave not updated): {ex.GetType().Name}: {ex.Message}");
             RuntimeLog.Swallowed(ex);
         }
@@ -181,7 +195,7 @@ public partial class VideoMergerWindow
             if (saved is null || VideoQueue.Count > 0) return;
 
             var plan = await Task.Run(() => MergerSession.Plan(saved, FileIdentity));
-            if (VideoQueue.Count > 0) return;
+            if (VideoQueue.Count > 0) return;   // the user added clips while we were reading
             await ApplyRestorePlanAsync(plan, projectEdl is { Clips.Count: > 0 } ? "project" : "last session");
         }
         catch (Exception ex)
@@ -195,6 +209,8 @@ public partial class VideoMergerWindow
     {
         var edl = plan.Edl;
 
+        // RESTOREMISS_01 — the session is restored silently UNLESS files are gone or changed: then the
+        // user sees exactly which file, from which folder, and approves what happens next.
         foreach (var m in plan.Missing) RuntimeLog.Warn("MERGER", $"Restore: missing on disk: {m}");
         foreach (var c in plan.Changed) RuntimeLog.Info("MERGER", $"Restore: changed on disk: {c}");
         if (plan.Missing.Count > 0 || plan.Changed.Count > 0)
@@ -218,9 +234,9 @@ public partial class VideoMergerWindow
         if (edl.Clips.Count == 0) return;
 
         _lastEdl = null;
-        await ApplyEdlStateAsync(edl, from: null);
+        await ApplyEdlStateAsync(edl, from: null);   // MERGEUNDO_01 — the same path undo/redo use
         CaptureEdlNow(flush: false);
-        ResetHistory();
+        ResetHistory();   // MERGEUNDO_01 — the restored merge is where undo starts
 
         string msg = $"Restored the {origin} merge: {edl.Clips.Count} clip(s)"
             + (edl.Music != null && _musicResult != null ? ", music" : "")

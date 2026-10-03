@@ -1,4 +1,4 @@
-# SPECIFICATION 02: AUDIO ENGINE & MASTERING
+﻿# SPECIFICATION 02: AUDIO ENGINE & MASTERING
 
 ## Code Mini-Map: Bound Source Files & Symbols
 
@@ -6,14 +6,21 @@
 | Source File Path | Key Classes, Records & Controls | Core Bound Methods, Properties & Symbols | Subsystem Domain Role |
 | :--- | :--- | :--- | :--- |
 | `src/FreeVideoStudio.Core/Media/AudioFilterChain.cs` | `AudioFilterChain` | `MusicTrack`, `AudioFilterChain` | Authoritative audio filtergraph generation for export and mastering. |
-| `src/FreeVideoStudio.Core/Media/AudioLoudnessProbe.cs` | `AudioLoudnessProbe` | `TargetLufs`, `PeakCeilingDbtp`, `QuietBoostReductionFactor`, `MusicBedLufs` | EBU R128 integrated loudness measurement and quiet boost attenuation. |
+| `src/FreeVideoStudio.Core/Media/AudioLoudnessProbe.cs` | `AudioLoudnessProbe`, `LoudnessReading` | `MeasureAsync`, `HasHarshPeaks`, `CrestWarnLu`, `HarshPeakFloorDbtp`, `MinSegmentSec` | EBU R128 measurement (analysis only, cached) for peak detection, the tamer threshold and meme/clip matching. |
+| `src/FreeVideoStudio.App/ViewModels/MixProtectionViewModel.cs` | `MixProtectionViewModel` | `DuckingStrength`, `CarvingStrength`, `DuckingEnabled`, `CarvingEnabled`, `ResetCommand`, `Label` | Settings "Music vs. game sound" switches + strength handles (DUCKSTRENGTH_01). **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.Core/Media/PeakSafety.cs` | `PeakSafety` | `TamerFilter`, `TamerThresholdDb`, `SafetyLimiterFilter`, `SafetyCeilingDbtp`, `SafetyLimiterLimitDb` | Peak tamer + always-on true-peak safety limiter (PEAKSAFE_01). |
+| `src/FreeVideoStudio.Core/Media/AudioGraphPruner.cs` | `AudioGraphPruner`, `AudioPreviewMap` | `Prune`, `MixSecFor` | Audio-only half of the export graph for the rendered preview mix (PREVIEWMIX_01). **⚠ CO-GOVERNED BY: 03**|
+| `src/FreeVideoStudio.App/MainWindow.PreviewMix.cs` | `MainWindow` | `UpdatePreviewMix`, `PreviewMixSignature`, `PreviewGameDuckGain`, `PreviewMusicDuckGain`, `ApplyLivePreviewFilters` | Rendered-mix preview + live voice-protection/tamer preview (PREVIEWMIX_01, VOPREVIEW_01). **⚠ CO-GOVERNED BY: 01**|
+| `src/FreeVideoStudio.App/Infrastructure/MasterVolumeUi.cs` | `MasterVolumeUi`, `MasterVolumePersistence` | `Bind`, `ToggleMute`, `Nudge`, `Start` | The one master-volume rack for all three apps; central persistence (VOLSHARED_01). **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.App/Infrastructure/WindowsAudioSessionSync.cs` | `WindowsAudioSessionSync` | `Start`, `Stop`, `PollMs` | Two-way sync with the Windows Volume Mixer (VOLSYNC_01). |
+| `src/FreeVideoStudio.App/UiSoundEffect.cs` | `UiSoundEffect` | `Play`, `ArmIdleCloseLocked`, `IdleCloseMs` | UI cue engine: 50 ms latency, device released when idle, silent when muted (UISND_01-03). |
 | `src/FreeVideoStudio.Core/Media/VoiceRecorder.cs` | `VoiceRecorder` | `StartRecording`, `StopRecording`, `GetInputDeviceNames`, `Dispose` | Low-latency WASAPI audio capture lifecycle on serialized worker thread. |
 | `src/FreeVideoStudio.Core/Media/MicLevelMonitor.cs` | `MicLevelMonitor` | `Start`, `Stop`, `Dispose`, `MicLevelMonitor` | Idle microphone level polling with proactive endpoint release before recording. |
 | `src/FreeVideoStudio.App/Controls/VoiceOverPreviewPlayer.cs` | `VoiceOverPreviewPlayer` | `Reload`, `Dispose`, `UpdatePlayback`, `DisposeTakes` | Timeline-synchronized voiceover take playback (plays takes only; waveforms are drawn by `VoiceOverWindow`). |
-| `src/FreeVideoStudio.Core/Media/MpvIpcClient.cs` | `MpvIpcClient` | `SetGlobalMasterVolume`, `ObserveProperty`, `CurrentTime`, `TimePosChanged`, `GlobalMasterVolume`, `IsPaused`, `IsEof`, `SetPropertyAsync`, `SendCommandAsync` | IPC communication with libmpv, cached player state, and the shared master preview volume (`GlobalMasterVolume`). |
-| `src/FreeVideoStudio.App/MainWindow.axaml.cs` | `MainWindow` | `VolumeSlider`, `OnGlobalMasterVolumeChanged`, `SaveRecoveryState`, `AttachPreviewMonitor` | Master preview volume scaling (master × wizard balance per player). **⚠ CO-GOVERNED BY: 01, 04, GOV**|
-| `src/FreeVideoStudio.App/CropToolWindow.Volume.cs` | `CropToolWindow` | `WireUpVolumeSlider`, `ApplyCurrentVolumeToMpvAsync`, `OnGlobalMasterVolumeChangedInCrop` | Master volume slider integration, video unmuting, and global sync in Crop Tools. **⚠ CO-GOVERNED BY: 04**|
-| `src/FreeVideoStudio.App/VideoMergerWindow.VolumeSync.cs` | `VideoMergerWindow` | `OnGlobalMasterVolumeChanged` | Master volume slider sync across merger queue preview players. **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.Core/Media/MpvIpcClient.cs` | `MpvIpcClient` | `SetGlobalMasterVolume`, `SetGlobalMuted`, `SetMasterAppliedBySystem`, `PlayerMpvVolume`, `ApplyPreviewGainAsync`, `PerceptualGain`, `MasterLinearGain`, `ObserveProperty`, `CurrentTime`, `TimePosChanged`, `GlobalMasterVolume`, `IsPaused`, `IsEof`, `SetPropertyAsync`, `SendCommandAsync` | IPC communication with libmpv, cached player state, and the shared master preview volume (`GlobalMasterVolume`). |
+| `src/FreeVideoStudio.App/MainWindow.axaml.cs` | `MainWindow` | `VolumeSlider`, `ApplyPreviewPlayersVolume`, `SaveRecoveryState`, `AttachPreviewMonitor` | Master preview volume scaling (master × wizard balance per player). **⚠ CO-GOVERNED BY: 01, 04, GOV**|
+| `src/FreeVideoStudio.App/CropToolWindow.Volume.cs` | `CropToolWindow` | `WireUpVolumeSlider`, `ApplyCurrentVolumeToMpvAsync` | Master volume slider integration, video unmuting, and global sync in Crop Tools. **⚠ CO-GOVERNED BY: 04**|
+| `src/FreeVideoStudio.App/VideoMergerWindow.VolumeSync.cs` | `VideoMergerWindow` | `ApplyPreviewPlayersVolume` | Master volume slider sync across merger queue preview players. **⚠ CO-GOVERNED BY: 04**|
 | `src/FreeVideoStudio.App/VoiceOverWindow.axaml.cs` | `VoiceOverWindow` | `UpdateReadyLamp`, `ReportMicHealth`, `RewindFromTimelineEnd`, `IsPreviewAtTimelineEnd` | Voice Over Studio UI, microphone health reporting, and 3-second preview abort guard. **⚠ CO-GOVERNED BY: 01**|
 | `src/FreeVideoStudio.App/MusicWizardWindow.axaml.cs` | `MusicWizardWindow` | `Name`, `FilePath`, `Title`, `Artist` | Background music arrangement, track loudness balancing, and end-of-video snapping. **⚠ CO-GOVERNED BY: 01**|
 | `src/FreeVideoStudio.App/Controls/FluidVolumeSlider.cs` | `FluidVolumeSlider` | `OnPointerMoved`, `Render`, `IsInteracting`, `FluidVolumeSlider` | Custom high-DPI tactile volume slider control. **⚠ CO-GOVERNED BY: 04**|
@@ -23,35 +30,42 @@
 ---
 
 ## 1. Master Application Volume Control  {#AUD-MASTERVOL}
-* **Global Master Volume Synchronization Across All Three Apps:**
-  The vertical fluid "test tube" volume slider (`FluidVolumeSlider`) is present, wired, and actively synchronized across the **Main App** (`MainWindow`), **Video Merger** (`VideoMergerWindow`), and **Crop Tools** (`CropToolWindow`).
-  Any adjustment to the slider or click of the mute hitbox in any window updates `MpvIpcClient.GlobalMasterVolume` (0–100) via `SetGlobalMasterVolume`, firing `GlobalMasterVolumeChanged`.
-  Each window receives the notification on its UI dispatcher thread, synchronizes its slider value, volume readout badge (`VolumeBadgeText`), and mute speaker icon (`VolumeSpeakerIcon`), and applies the volume to its local mpv player via `IpcClient.SetPreviewVolumeAsync` without re-entrant loop feedback (`_isSyncingMasterVolume` guard).
-  In `CropToolWindow`, video playback is no longer forced into a muted state on load; it loads and plays at the active global master volume.
-* **Preview Only:** Master volume controls the mpv player preview; it has zero impact on FFmpeg export filtergraphs.
-* **Proportional Scaling:** Each mpv player's volume is the master multiplied by that player's Music Wizard balance (`MainWindow.OnGlobalMasterVolumeChanged`; the balance is 1.0 when no music is active), converted through `ToMpvVolume` for mpv's cubic curve:
-  $$V_{\text{preview, game}} = V_{\text{master}} \times V_{\text{game}}, \quad V_{\text{preview, music}} = V_{\text{master}} \times V_{\text{music}}$$
-* **No Mute Cache:** The balance lives in the wizard result, not in the players, so 0% simply sends 0 to every player and any value above 0% re-applies the same product. Nothing is cached.
+* **One Master, One Rack (VOLSHARED_01):** The vertical fluid "test tube" slider (`FluidVolumeSlider`), the % badge and the speaker button of the **Main App**, **Video Merger** and **Crop Tools** are all wired by ONE helper, `MasterVolumeUi.Bind`. The suite master is `MpvIpcClient.GlobalMasterVolume` (0–100) + `GlobalMuted`; every change (from any window, the keyboard, the wheel or Windows) fires `GlobalMasterVolumeChanged`, and every bound window repaints its slider/badge/icon (re-entrancy guarded) AND re-applies its own players. A window never re-sends its slider value as the master (that is how a stale Main slider used to snap the level back after a trip to the Crop Tools).
+* **Shared Mute (VOLMUTE_01):** the speaker button toggles `GlobalMuted` in all three apps at once; the level is kept and restored exactly. Moving the level while muted unmutes. Unmuting a 0% master restores 50%. Muted shows `MUTE` on the badge.
+* **Persistence:** `MasterVolumePersistence` saves the level (session state `MainVolume`) and the mute (settings `PreviewMuted`) 600 ms after ANY change, off the UI thread. Seeded at startup (`AvaloniaApp.StartSharedMasterVolume`).
+* **Mouse Wheel (VOLWHEEL_01):** one notch = 5%, Shift = 1%.
+* **Perceptual Curve (VOLCURVE_01):** master gain = (position/100)³ (mpv's own cubic curve: 50% ≈ -18 dB). The Music Wizard VIDEO/MUSIC faders stay LINEAR because they are the export's `volume=` gains. A player's mpv volume is:
+  $$V_{\text{mpv}} = P_{\text{master}} \cdot \sqrt[3]{B_{\text{balance}}} \quad\Rightarrow\quad \text{gain} = (P_{\text{master}}/100)^3 \cdot B$$
+  (`MpvIpcClient.PlayerMpvVolume` / `ApplyPreviewGainAsync`). NAudio players (voice-over takes) use `MasterLinearGain`.
+* **Windows Volume Mixer Sync (VOLSYNC_01):** while Core Audio is available, this process's default audio session CARRIES the master: app → session level (position/100)³ + session mute; Mixer → app position ∛level × 100 + shared mute (polled every 300 ms on one MTA thread, echo-suppressed). `MasterAppliedBySystem` is then true and players carry ONLY their balance, so the master is applied once. On any Core Audio failure the flag is false and players apply the master themselves. The session volume is linear amplitude (Microsoft: ISimpleAudioVolume is linear-tapered), hence the cube; the two sliders therefore show different numbers for the same loudness (app 79% ⇔ Mixer 50%).
+* **Preview Only:** the master never reaches an FFmpeg export graph.
 
 ---
 
 ## 2. Audio Mastering & Peak Protection Pipeline  {#AUD-MASTERING}
-* **Original Recorded Volume Preservation (No Loudness Standardization):**
-  * Clips, background music, voiceovers, and preview playback retain their 100% raw, uncorrected recorded volume.
-  * The historical two-pass `loudnorm` standardisation pipeline (which previously normalized clips and mixes to -14.0 LUFS) is **completely removed** from both preview playback and FFmpeg export filtergraphs.
-  * `ProcessWorker` omits Phase 1 loudnorm analysis entirely (`willAnalyzeAudio = false`) and builds no second-pass `loudnorm` filter (`hasSecondPass = false`).
-  * Music tracks are not shifted to match any target loudness; `MeasureMusicBedGainsAsync` delivers 0.0 dB gain adjustment, leaving the music bed at original recorded level subject only to the user's fader settings.
-  * Voiceover takes are not standardized to -14.0 LUFS; preview offset is 0.0 dB (`VoicePreviewOffsetDb => 0.0`) and wizard preview balance is 0.0 dB (`PreviewMusicBalanceDb => 0.0`).
-  * The quiet-boost lift and trim (`quietBoostTrimDb`) and user prompts for loudness standardisation during ingest and in Settings have been completely removed.
-* **Momentary Peak Spike Flattening (-1.5 dB Limiter):**
-  * When `AutoSpikeFlattening` is enabled (default on), the engine auto-flattens sudden momentary bursts and harsh sound spikes across the Main App export, Video Merger, and Voiceovers:
-    ```text
-    alimiter=limit=-1.5dB:level_in=1:level_out=1
-    ```
-  * Crucially, this limiter operates directly on the audio bus without a preceding `loudnorm` filter, protecting ears and speakers against clipping while keeping the clip's natural dynamics and perceived volume untouched.
-* **Preview Balance Contract:** Sidechain dynamic ducking and EQ speech carving are export-only. Live preview reflects static fader balance across separate media players.
+* **No Loudness Standard (LOUDSTD_REMOVED_01):** clips, music, voice-over and preview keep their recorded level, scaled only by the user's faders. The -14 LUFS "industry standard" detection, its upload prompt, its setting (`LoudnessNormalizationPrompt`), the dead two-pass loudnorm machinery (`PerformLoudnormPassAsync`, `BuildLoudnormSecondPassFilter`, `VolumeNormalizeDb`, `MeasureMusicBedGainsAsync`, `QuietBoostReductionFactor`, `MusicBedLufs`, `TargetLufs`), the dead `AutoVoiceNormalization` setting and the preview balance offsets (`PREVIEW_03/04`) are deleted. `AudioLoudnessProbe` remains as a pure MEASUREMENT (loudnorm analysis into the null muxer, results cached per file/window) for exactly three consumers: harsh-peak detection, the tamer threshold, meme/clip matching.
+* **Harsh-Peak Detection (kept):** on upload, `HasHarshPeaks` = crest (TP − I) > 15 LU AND TP > -1.5 dBTP → the "Sudden Loud Moment" prompt (Settings: Ask / Always / Never).
+* **Peak Tamer (PEAKSAFE_01, user switch `AutoSpikeFlattening` × prompt answer):** on the GAMEPLAY bus only, before voice-over and music are mixed, threshold = measured integrated loudness + 9 LU (clamped -40…-6 dBFS):
+  ```text
+  acompressor=threshold={I+9}dB:ratio=6:attack=1:release=150:knee=2:makeup=1:detection=peak
+  ```
+  Main App: measured over the exported range (fallback: the upload reading). Merger: per clip, against that clip's own level. Measured: a +12 dB burst over -37 dB body was reduced 6.7 dB peak; the body is untouched. It never runs on the summed mix (a music bed mixed louder than the game would be squashed).
+* **Safety Limiter (PEAKSAFE_01, ALWAYS ON, no switch):** on every export's final mix (Main and Merger):
+  ```text
+  aresample=192000,alimiter=limit=-2.3dB:attack=1:release=50:level_in=1:level_out=1:level=disabled,aresample=48000
+  ```
+  4× oversampled so it catches inter-sample peaks: measured -2.1 dBTP on hot program (ceiling `SafetyCeilingDbtp` = -2.0 dBTP).
+  ⚠️ **`level=disabled` is load-bearing.** `alimiter`'s auto-level defaults ON and rescales by 1/limit: the old `alimiter=limit=-1.5dB` measured +1.5 dB louder on everything with peaks back at 0.0 dBFS (+1.0 dBTP), and was applied twice to voice-over (+3 dB) and to memes (+2 dB). Those per-take and per-meme limiters are removed.
+* **Meme Level (MEMELEVEL_02):** gain = measured gameplay − measured meme (clamped -24…+12 dB); either unmeasured → as recorded. A CORNER OVERLAY meme with "Play meme sound" on gets the same gain and SPLICE_03 fades, delayed to its window and summed over the game audio (`amix normalize=0, duration=first`, 03 FFM-MEMECORNER); with sound off it contributes nothing (MEMEMODE_01). Same rule in the Main App (`ProcessWorker`) and the Merger (`MergeClipGraph`, against the host clip after clip matching).
+* **De-click Splices (SPLICE_03):** 8 ms fade pairs (≤ 2% of the piece) on every audio piece that butt-joins an unrelated neighbour: both sides of every meme splice (both apps) and every Merger clip join.
+* **Merger Clip Matching (CLIPLEVEL_01, Settings › Defaults › Video Merger, default OFF):** each clip with sound is gained toward the queue's MEDIAN measured loudness, ±12 dB. Merger audio speed uses the shared `AudioTempoFilterBuilder` (TEMPO_01, `03_FFMPEG_EXPORT_PIPELINE.md` FFM-TEMPO): no filter at 1.0× (AVSYNC_01), Rubber Band below 1.0× when the bundled FFmpeg verifies it, atempo otherwise.
 
 ---
+
+## 2b. The Preview Hears The Export (PREVIEWMIX_01 / VOPREVIEW_01)  {#AUD-PREVIEWMIX}
+* **Rendered Mix:** whenever the Main App edit has music, voice-over, a meme or an active tamer, the export's audio is rendered in the background: the SAME payload (`ComposeExportPayloadAsync`) and worker configuration (`MainMediaController.ApplyPayload`) as PROCESS, `ProcessWorker.AudioPreviewOutputPath` set, `AudioGraphPruner.Prune` keeps only the chains the final audio label depends on (the meme `concat v=1:a=1` becomes `v=0:a=1`, orphan pads get `anullsink`), output 48 kHz PCM WAV. Measured: rendered mix vs exported file's audio = -60 dB RMS difference (AAC noise).
+* **Playback:** while the mix matches the edit (`PreviewMixSignature`), the gameplay, music and voice-over players are silenced and one audio-only player follows the video in output time: `AudioPreviewMap.MixSecFor(t) = intro + fade-in pad + t + Σ memes cut before`, seek-only drift correction (MUSICSYNC_02 tolerances). During a meme cutaway the tick returns early and the mix simply plays the meme section. Only FULL SCREEN memes are counted in `MixSecFor` (a corner overlay adds no time); a corner meme's sound is part of the rendered mix (MEMEMODE_01). Any edit drops the mix at once (live players take over); a new one renders 0.8 s after the edits stop.
+* **Live Fallback (VOPREVIEW_01):** the voice-protection dip is a pure time pulse, so the live players reproduce it exactly (0.3 s ramps, 85%): VOICE first, GAMEPLAY second, MUSIC last (VOPRIO_01). The gameplay player carries the tamer as an mpv `af=lavfi=[…]`. Ducking and carving need the game as a live sidechain and are heard only in the rendered mix — the Music Wizard's players carry no filter.
 
 ## 2a. Cached Player State Must Not Lag The Command  {#AUD-IPCSTATE}
 `MpvIpcClient` caches player state (`IsPaused`, `IsEof`, `CurrentTime`, `Duration`) from **asynchronous** libmpv property observers. Every consumer polls that cache from a UI tick. The rule that makes the cache safe:
@@ -69,28 +83,28 @@
 ---
 
 ## 3. Sidechain Compression & Dynamic Ducking  {#AUD-SIDECHAIN}
-* **Compressor Filter Specification:**
+* **Multiband (DUCKMB_01):** the music bed is split into three bands, the gameplay(+voice) is the sidechain:
   ```text
-  sidechaincompress=threshold=0.15:ratio=1.13:attack=1:release=800:detection=peak
+  [music]aformat=fltp:48000:stereo,acrossover=split='250 2900'[mus_low][mus_mid][mus_high]
+  LOW  (<250 Hz)     untouched (the bed keeps its body)
+  MID  (250-2900 Hz) ducking  sidechaincompress=threshold=0.1:ratio=4:attack=10:release=400:detection=peak
+                     carving  sidechaincompress=threshold=0.1:ratio=2.5:attack=10:release=250:detection=peak
+  HIGH (>2900 Hz)    ducking  (same as MID)
+  [mus_low][mid][high]amix=inputs=3:weights='1 1 1':normalize=0
   ```
-* **Trigger Conditioning:**
-  * Gameplay trigger passes through a 200Hz - 3.5kHz bandpass and noise gate:
-    ```text
-    highpass=f=200,lowpass=f=3500,agate=threshold=0.05:attack=5:release=100
-    ```
-  * The historical +10 dB boost is permanently removed; dynamic gain reduction is strictly capped at 20% (-2 dB) at peak gameplay events.
-* **Low-End Preservation:** Music splits via `acrossover=split=250`. Only the high band is ducked; frequencies <= 250Hz bypass ducking and are summed back:
-  ```text
-  acrossover=split=250[mus_low][mus_high];[mus_high][trig_final]sidechaincompress=...[mus_high_ducked];[mus_low][mus_high_ducked]amix=inputs=2:weights='1 1':normalize=0
-  ```
-* **Ducking Is A User Switch (DUCKOFF_01):** There is no automatic bypass for silent game audio. The wizard's ducking checkbox (`ducking_enabled`) decides: off means the trigger bus, the crossover and the compressor are not built at all and the music reaches the mix untouched (not a ratio=1 bypass). Configs written before the key existed read as off when their ratio is the old bypass value 1.0.
-* **Speech Carving (separate switch):** Independently of ducking, `carving_enabled` (default on) cuts the music bed at 2 kHz: `equalizer=f=2000:width_type=h:width=1800:g=-4`.
+  The band split sums flat (measured ±0.001 dB, 60 Hz-12 kHz). Measured under a near-full-scale trigger: ducking -8.5 dB, carving -4 dB on the mid band, both -12 dB; nothing happens while the game is quiet. The old tuning (threshold 0.15, ratio 1.13, high band only) measured -1.2 dB — inaudible.
+* **Trigger:** `highpass=f=200,lowpass=f=3500,agate=threshold=0.05:attack=5:release=100,aformat=…`, split once per compressor stage. Both sidechain inputs are format-pinned (otherwise ffmpeg rejects the graph: "No channel layout for input 1").
+* **Switches & Strength Handles (DUCKSTRENGTH_01):** Settings › Sound & Music › "Music vs. game sound" has two checkboxes — **Volume ducking** and **EQ carving** (both ON by default) — and two vertical handles, **DUCK** and **CARVE** (0-100, styled like the Music Wizard's MIX rack), each starting in the MIDDLE (50 = the tuned values above, label "Normal"; "+n"/"-n" either side; "Back to normal" resets both). Only the ratio moves, smoothly and per handle:
+  $$\text{ratio}(h) = 1 + (\text{tuned} - 1)\cdot 2^{\frac{h-50}{50}\cdot 1.5}$$
+  Ducking 2.06 · **4** · 9.49, carving 1.53 · **2.5** · 5.24 (each whole step < 4% change — no jumps). Sent to the graph as `ducking_strength` / `carving_strength`. A handle is disabled while its checkbox is off. Settings OFF wins over the Music Wizard's per-video checkbox (shown unticked and greyed with a pointer to Settings). Stored in `Defaults.DuckingEnabled/CarvingEnabled/DuckingStrength/CarvingStrength` (schema v13 seeds the switches once from the legacy `AudioProtection`; user values survive every later upgrade). View-model: `MixProtectionViewModel`.
+* **Graph flags:** `ducking_enabled` and `carving_enabled` (Music Wizard checkbox AND the Settings switch). Both off → no split, no trigger, no crossover: the music reaches the mix untouched (DUCKOFF_01). Configs without the flag: a legacy ratio of 1.0 still means ducking off.
+* **Carving Is Dynamic:** the static `equalizer=f=2000:width_type=h:width=1800:g=-4` (which dulled the music for the whole video, even over silence) is gone.
 
 ---
 
 ## 4. Voice Over Studio  {#AUD-VOICEOVER}
-* **Normalization & Limiting:** Voiceovers are not normalized to -14.0 LUFS. Takes retain original recording volume; when `AutoSpikeFlattening` is active, takes pass through `alimiter=limit=-1.5dB:level_in=1:level_out=1,aresample=48000` to suppress momentary burst peaks.
-* **Sidechain Integration:** Voiceover muxes into the game bus before sidechain trigger generation, ducking background music automatically.
+* **Level & Limiting:** takes keep their recorded level (no normalization, no per-take limiter); the always-on safety limiter on the final mix covers them (PEAKSAFE_01).
+* **Sidechain Integration:** Voiceover muxes into the game bus before sidechain trigger generation, so a take also pushes the music down (multiband, §3).
 * **Take Management:** Chunks render 40% semi-transparent red overlays on timeline with visual waveform rendering. Export mixes chunks via `adelay` and `amix`, each delayed to the take's position in OUTPUT time: `granularTimeMapper` maps the take start through speed segments and cuts (without it: take start minus extract start, divided by the base speed), and when the music is mixed after the meme splice the thumbnail intro and any memes inserted before the take are added. A take starting before the body is `atrim`med:
   $$\text{Delay}_{\text{ms}} = \left(\text{granularTimeMapper}(t_{\text{take\_start}}) + t_{\text{intro}} + t_{\text{memes before}}\right) \times 1000$$
 * **Live Indicators:** Microphone open state triggers a 0.9s pulsing red glow on mic button and status light; arming displays static `ARMING`.
@@ -107,7 +121,7 @@
 * **Preview Player Synchronization:** `VoiceOverPreviewPlayer` only plays takes; it maps start timestamps through `timeMapper` across all windows, adjusting for granular speeds, and follows the video clock (`MpvIpcClient.CurrentTime` / `TimePosChanged`). Take waveforms are drawn by `VoiceOverWindow` with `StreamGeometry`; the studio ticks on a 50ms `DispatcherTimer`. Horizontal EQ meter animates via smoothed NAudio volume.
 * **Studio Open Anchor:** Studio always opens at `MARK START` (trim-in point).
 * **Idle Input Monitor (`MicLevelMonitor.cs`):** Configured for 44.1kHz mono, 50ms buffer. Active during idle; must stop and release WASAPI endpoint before `VoiceRecorder` opens the recording stream.
-* **Voice Protection System (VOPROT_01):** Independent toggles protect the voice from the game and from the music. In the export, across every take (0.3s ramps either side) the protected bus gets `volume='1.0-0.85*pulse'` and `equalizer=f=2500:width_type=h:width=2200:g=-3` — an 85% duck plus a -3 dB carve at 2.5 kHz. Settings persist choices (`ON`, `OFF`, `REMEMBER LAST CHOICE`).
+* **Voice Protection System (VOPROT_01 / VOGATE_01):** Independent toggles protect the voice from the game and from the music. Across every take (0.3 s ramps either side) the protected bus is ducked 85% (`volume='1.0-0.85*pulse'`) and carved -3 dB at 2.5 kHz — the carve is GATED by the same pulse (`AudioFilterChain.GatedVoiceProtection`: a carved copy faded in by the pulse + the dry copy faded out by its complement), so outside the takes the bus is untouched (it used to be a static EQ over the whole video). Priority VOPRIO_01: voice > gameplay > music. Settings persist choices (`ON`, `OFF`, `REMEMBER LAST CHOICE`).
 * **Deleted Footage Seek-Skip (CUTS_02):** Cut spans are drawn on the studio's own timeline and SKIPPED in a single seek during preview playback. The studio's playback tick performs that skip BEFORE anything else it does — a tick that has wandered into deleted footage is reasoning about a frame that is not in the finished video.
 * **Cross-Cut Take Warning (CUTS_02):** A take whose recorded span crosses one or more cut boundaries MUST raise `"Skipped a deleted section"`. Voice-over is anchored to the video clock; speech recorded across frames that do not exist in the export desyncs severely at render time. The take is kept — the user is warned, not silently corrected.
 * **Companion Audio Pauses With A Meme Cutaway (MEME_07):** While `MemePreviewDirector.IsActive`, every voice-over take and the music bed pause, and resume when gameplay returns. Cutaways are additionally SUSPENDED outright during arming and recording: cutting away mid-take would anchor speech to frames the take never heard. Authoritative rule: `03_FFMPEG_EXPORT_PIPELINE.md` §5 (FFM-MEMEPREVIEW).

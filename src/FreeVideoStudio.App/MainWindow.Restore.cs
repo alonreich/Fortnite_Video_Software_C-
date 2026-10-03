@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -92,6 +95,12 @@ public partial class MainWindow
 
             _thumbnailPosMs = state["thumbnailPosMs"]?.GetValue<double>() ?? 0;
             _thumbnailSet = state["thumbnailSet"]?.GetValue<bool>() ?? _thumbnailPosMs > 0;
+
+            // THUMB_01 — one owner for this button's appearance. The hand-rolled copy here always
+            // came back saying REMOVE THUMBNAIL, which after the change above is only true when the
+            // playhead happens to be sitting on the thumbnail — and on a fresh restore it is at the
+            // trim start, not on it. The recovered project would have offered to delete the cover
+            // frame it had just restored.
             UpdateThumbnailButtonState();
 
             var markStartBtn = MarkStartButtonCtl;
@@ -104,6 +113,9 @@ public partial class MainWindow
             var speedSlider = MainSpeedSliderCtl;
             if (speedSlider != null) speedSlider.Value = (int)Math.Round(_baseSpeed * 10.0, MidpointRounding.AwayFromZero);
 
+            // QUALITY_01 — the stored index means a TIER now. An index written by an older build
+            // meant megabytes; ClampIndex (in the setter) keeps it in range rather than failing,
+            // and the old top stop "ORIGINAL QUALITY" still lands on the new top stop "Original".
             int qualityVal = document.Export.QualityIndex >= 0
                 ? document.Export.QualityIndex
                 : ViewModels.QualityLadder.DefaultIndex;
@@ -115,9 +127,14 @@ public partial class MainWindow
             if (_freezeTimeMs >= 0)
                 RuntimeLog.Info("RECOVERY", $"Crash Recovery Restore: Successfully reinstated Freeze parameters [Timestamp={_freezeTimeMs}ms, Duration={_freezeDurationS}s]");
 
+            // CUT_01 — a session saved before cuts existed has no "cuts" key; the list simply
+            // stays empty and the clip behaves exactly as it always did.
             bool hasGranular = _speedSegments.Count > 0 || _freezeTimeMs >= 0;
             SetGranularButtonActive(hasGranular || (state["isGranularSpeedActive"]?.GetValue<bool>() ?? false));
 
+            // MEME_06 — additive and absent-is-legal: a recovery file written before memes existed
+            // simply has no "memePlacements" key and restores with none, which is exactly the
+            // project that build produced.
             if (snapshot.Raw.TryGetPropertyValue("granular_session", out var granularNode) && granularNode is JsonObject granularSession)
             {
                 bool isOpen = granularSession["open"]?.GetValue<bool>() ?? false;
@@ -186,6 +203,10 @@ public partial class MainWindow
                 NormalizeMusicPlacement(_musicWizardResult);
             }
 
+            // EDIT3_02 — as above, and this one was worse than drift: assigning a plain string to
+            // `Content` REPLACED the button's whole StackPanel, so a recovered project came back
+            // with the two music-note icons gone. Going through the setter keeps the icons and
+            // only swaps the label inside them.
             SetMusicButtonActive(_viewModel.IsMusicActive);
 
             double vol = state["volume"]?.GetValue<double>() ?? 100;
@@ -215,7 +236,8 @@ public partial class MainWindow
             var addMemeCbRestore = AddMemeCheckboxCtl;
             if (addMemeCbRestore != null) addMemeCbRestore.IsChecked = addMeme;
 
-            string memeFilePath = (string?)state["memeFilePath"] ?? "";
+            // MEMEFOLDER_02 — a meme saved under the old spaced folder resolves to where it moved.
+            string memeFilePath = FreeVideoStudio.Core.Infrastructure.MigrationPathResolver.ResolveSavedFile((string?)state["memeFilePath"] ?? "");
             string memeFile = (string?)state["memeFile"] ?? "";
             string restoreTarget = !string.IsNullOrEmpty(memeFilePath) ? memeFilePath
                 : (!string.IsNullOrEmpty(memeFile) ? Path.Combine(Infrastructure.MemeDirectory.GetActive(), memeFile) : "");
@@ -299,6 +321,8 @@ public partial class MainWindow
         {
             _isRestoring = false;
 
+            // RECOVERY_05 — the mirror of the save line. Put side by side in the log these two
+            // lines prove a restore was faithful, field for field, without re-running the crash.
             try
             {
                 RuntimeLog.Info("RECOVERY",
@@ -370,12 +394,14 @@ public partial class MainWindow
             {
                 if (node is not JsonObject o) continue;
                 string? file = o["file_path"]?.ToString();
+                if (file != null) file = FreeVideoStudio.Core.Infrastructure.MigrationPathResolver.ResolveSavedFile(file);   // MEMEFOLDER_02
                 double at = o["at_source_sec_relative"]?.GetValue<double>() ?? -1;
                 double dur = o["duration_sec"]?.GetValue<double>() ?? 0;
                 if (string.IsNullOrEmpty(file) || !File.Exists(file) || at < 0 || dur <= 0) continue;
                 string id = o["id"]?.ToString() ?? "";
-                _memePlacements.Add(new FreeVideoStudio.Core.Media.MemePlacement(file!, at, dur,
-                    !string.IsNullOrEmpty(id) ? id : FreeVideoStudio.Core.Media.MemePlacement.NewId(i)));
+                _memePlacements.Add(FreeVideoStudio.Core.Project.MemePresentationJson.Apply(o,   // MEMEMODE_01
+                    new FreeVideoStudio.Core.Media.MemePlacement(file!, at, dur,
+                    !string.IsNullOrEmpty(id) ? id : FreeVideoStudio.Core.Media.MemePlacement.NewId(i))));
                 i++;
             }
         }

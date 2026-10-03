@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -31,9 +34,6 @@ public static partial class MpvWrapper
 
     [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int mpv_set_property_string(nint ctx, string name, string data);
-
-    [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial int mpv_set_property(nint ctx, string name, int format, ref double data);
 
     [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int mpv_set_option_string(nint ctx, string name, string data);

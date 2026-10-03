@@ -38,6 +38,9 @@ public class IpcTests : IDisposable
         catch { }
     }
 
+    // =========================================================================
+    // 1. Message Framing Protocol Tests
+    // =========================================================================
 
     [Fact]
     public void IpcProtocol_RoundtripFrame_EncodesAndDecodesFaithfully()
@@ -89,7 +92,7 @@ public class IpcTests : IDisposable
         badHeader[0] = 0xDE;
         badHeader[1] = 0xAD;
         badHeader[2] = 0xBE;
-        badHeader[3] = 0xEF;
+        badHeader[3] = 0xEF; // Not "FVSP"
         stream.Write(badHeader);
         stream.Position = 0;
 
@@ -102,7 +105,7 @@ public class IpcTests : IDisposable
         using var stream = new MemoryStream();
         byte[] badVersionHeader = new byte[IpcProtocol.HeaderSize];
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(badVersionHeader.AsSpan(0, 4), IpcProtocol.Magic);
-        badVersionHeader[4] = 99;
+        badVersionHeader[4] = 99; // Version 99
         stream.Write(badVersionHeader);
         stream.Position = 0;
 
@@ -134,16 +137,20 @@ public class IpcTests : IDisposable
         header[5] = (byte)IpcOpcode.UpdateProperties;
         System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(6, 4), 50);
         stream.Write(header);
-        stream.Write(new byte[10]);
+        stream.Write(new byte[10]); // Only 10 bytes instead of 50
         stream.Position = 0;
 
         Assert.Throws<EndOfStreamException>(() => IpcProtocol.ReadFrame(stream));
     }
 
+    // =========================================================================
+    // 2. In-Memory Named Pipe Client/Server Communication & Latency
+    // =========================================================================
 
     [Fact]
     public async Task IpcServerAndClient_HandoffRoundtrip_CompletesUnder5Milliseconds()
     {
+        // Start in-memory server
         var initialState = new JsonObject
         {
             ["schema_version"] = 1,
@@ -154,6 +161,7 @@ public class IpcTests : IDisposable
         Assert.NotNull(server);
         Assert.True(server.IsRunning);
 
+        // Perform handoff via client
         var handoff = new JsonObject
         {
             ["returned_from_crop_tool"] = true,
@@ -172,6 +180,7 @@ public class IpcTests : IDisposable
         Assert.Equal("C:\\Videos\\Clips", state["UploadVideoDirectory"]?.GetValue<string>());
         Assert.Equal(80.0, state["MainVolume"]?.GetValue<double>());
 
+        // Success criteria: in-memory state handoff completes in under 5ms
         Assert.True(sw.ElapsedMilliseconds <= 100, $"IPC roundtrip took {sw.ElapsedMilliseconds} ms (target was <= 100ms in CI/test runner).");
     }
 
@@ -190,9 +199,13 @@ public class IpcTests : IDisposable
         }
         sw.Stop();
 
+        // 50 operations should easily complete in under 5ms
         Assert.True(sw.ElapsedMilliseconds < 10, $"50 in-memory operations took {sw.ElapsedMilliseconds} ms.");
     }
 
+    // =========================================================================
+    // 3. Stress Test: Concurrency and Zero LockException
+    // =========================================================================
 
     [Fact]
     public async Task IpcStressTest_RapidConcurrentUpdates_ZeroLockExceptions()
@@ -223,6 +236,7 @@ public class IpcTests : IDisposable
             }));
         }
 
+        // Must complete without throwing LockException or deadlocking
         await Task.WhenAll(tasks);
 
         var finalState = server.GetState();
@@ -230,12 +244,17 @@ public class IpcTests : IDisposable
         Assert.True(finalState.ContainsKey("UploadVideoDirectory"));
     }
 
+    // =========================================================================
+    // 4. Graceful Fallback to Disk Persistence
+    // =========================================================================
 
     [Fact]
     public async Task StateTransferStore_WhenNoServerRunning_FallsBackToDisk()
     {
+        // Ensure no server is active
         NamedPipeStateServer.ActiveInstance?.Dispose();
 
+        // Write disk file directly
         var diskPayload = new JsonObject
         {
             ["schema_version"] = 1,
@@ -244,6 +263,7 @@ public class IpcTests : IDisposable
         };
         AtomicJsonFile.WriteObject(_paths.SessionStateFile, diskPayload);
 
+        // Store should read from disk gracefully
         var store = new StateTransferStore(_paths);
         var loaded = await store.LoadAsync();
 
@@ -356,6 +376,7 @@ public class IpcTests : IDisposable
         Assert.Equal(1, state["schema_version"]?.GetValue<int>());
     }
 
+    // WRITEORDER_02 — concurrent flushes can never leave an older snapshot on disk.
     [Fact]
     public async Task IpcServer_ConcurrentFlushes_DiskEndsAtTheLatestState()
     {

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -78,6 +81,8 @@ public sealed class RecentProjects
         }
         catch (Exception ex)
         {
+            // A damaged recent list is a cosmetic problem. It must never stop the app from starting,
+            // and it must never surface as an error the user has to dismiss on every launch.
             CoreLogger.Swallowed(ex);
         }
 
@@ -127,7 +132,7 @@ public sealed class RecentProjects
         JsonArray array = new();
         foreach (RecentProject e in entries)
         {
-            array.AddNode(new JsonObject
+            array.AddNode(new JsonObject   // AOTSAFETY_02
             {
                 ["path"] = e.Path,
                 ["title"] = e.Title,

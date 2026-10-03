@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -71,6 +74,8 @@ public sealed class DiagnosticReport
         sb.AppendLine($"clr              : {Environment.Version}");
         sb.AppendLine($"culture          : {CultureInfo.CurrentCulture.Name}");
 
+        // ⚠️ NOT Environment.UserName, NOT the machine name, NOT the user profile path. None of
+        // them help reproduce anything and all of them identify a person.
         sb.AppendLine($"encoder chosen   : {detectedEncoder ?? "(not probed yet)"}");
 
         try
@@ -80,7 +85,7 @@ public sealed class DiagnosticReport
         catch (Exception ex)
         {
             sb.AppendLine($"working set      : unavailable ({ex.GetType().Name})");
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(ex);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
 
         return Add("MACHINE", sb.ToString());
@@ -102,6 +107,7 @@ public sealed class DiagnosticReport
         {
             if (!File.Exists(logPath)) return Add($"LOG {name}", "(no log file)");
 
+            // Read from the end without loading the whole file: a ring buffer of the last N lines.
             var ring = new string[maxLines];
             int count = 0;
 
@@ -125,7 +131,9 @@ public sealed class DiagnosticReport
         }
         catch (Exception ex)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(ex);
+            // A report that cannot read one log still ships with the rest. This is the one place
+            // where continuing past a failure is right: the alternative is no diagnosis at all.
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return Add($"LOG {name}", $"(could not be read: {ex.GetType().Name} — {ex.Message})");
         }
     }
@@ -171,7 +179,7 @@ public sealed class DiagnosticReport
     public override string ToString()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("FORTNITE VIDEO SOFTWARE — DIAGNOSTIC REPORT");
+        sb.AppendLine("FREE VIDEO STUDIO — DIAGNOSTIC REPORT");
         sb.AppendLine($"generated {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}");
         sb.AppendLine();
         sb.AppendLine("This file is plain text and contains no personal information beyond what is");

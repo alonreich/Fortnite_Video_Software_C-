@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Text.Json.Nodes;
 using System.Collections.Generic;
 using FreeVideoStudio.Core.Ipc;
@@ -10,6 +13,7 @@ public static class HudConfig
     public static readonly string[] RequiredSections = ["crops_1080p", "scales", "overlays", "z_orders"];
     public static readonly string[] HudKeys = ["loot", "stats", "normal_hp", "team", "spectating"];
 
+    // NO_BOSS_HP_01 — old documents may contain this key, but it must never become a custom layer.
     public static bool IsRetiredRole(string key)
         => string.Equals(key, "boss_hp", StringComparison.OrdinalIgnoreCase);
 
@@ -74,7 +78,7 @@ public static class HudConfig
         try { return CoordinateMath.ScaleRound(Frac.FromString(value.ToString())); }
         catch (System.Exception swallowed3)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return defaultValue;
         }
     }
@@ -110,7 +114,7 @@ public static class HudConfig
         }
         catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return fallback;
         }
 
@@ -354,12 +358,39 @@ public static class HudConfig
             int w = ReadArrayInt(rect, 0);
             int h = ReadArrayInt(rect, 1);
 
+            // NOMASK_01 — A FULLY ZERO RECT IS "LAYER SWITCHED OFF", NOT A FAULT.
+            // This is the documented representation: CropConfigDefaults.Create's remarks say a
+            // zero-size rect is the canonical way to express a disabled layer, CropToolWindow
+            // .SaveConfig writes [0,0,0,0] when the user deletes one, MobileFilterBuilder
+            // .RegisterLayer skips anything with w < 1 || h < 1, and the Crop Tools ghost renderer
+            // skips w <= 1 || h <= 1. Such a rect can never reach the filter graph.
+            // Flagging it was wrong for EVERY profile — deleting a layer produced a bogus
+            // "Invalid crop dimensions" issue for it on every export — and the reserved
+            // "No Mask Profile" is six of them by design.
+            // A PARTIALLY zero rect (one axis only) is still a real fault and still flagged.
             if (w == 0 && h == 0) continue;
 
             if (w <= 0 || h <= 0 || h > CoordinateConstants.ContentH)
                 issues.Add($"Invalid crop dimensions for '{kvp.Key}'");
         }
 
+        // ─────────────────────────────────────────────────────────────────────────────────────
+        // CONFIGVAL_01 — the four sections are ONE document, and only one of them was checked.
+        //
+        // Everything above inspects crops_1080p and nothing else. A file could name a layer in
+        // "scales" that "crops_1080p" has never heard of, carry a scale of "0" or "-1/2", hold an
+        // overlay with no x, or list the same element twice under two capitalisations — and
+        // Validate reported the document clean. The fault then surfaced as a wrongly placed or
+        // postage-stamp-sized layer in the finished video, with nothing in the log pointing at the
+        // config file.
+        //
+        // These checks read the RAW document, not `sanitized`. Sanitize exists precisely to paper
+        // over this class of damage — it unions the key sets across all four sections, coerces
+        // every scale to a usable Frac and every overlay to an {x,y} pair — so validating its
+        // output would report every file as clean by construction. Validate's job is to tell the
+        // user what is wrong with the file they have; Sanitize's job is to keep the export running
+        // anyway. They must not be asked the same question.
+        // ─────────────────────────────────────────────────────────────────────────────────────
         var rawCrops = config["crops_1080p"] as JsonObject;
         var rawScales = config["scales"] as JsonObject;
         var rawOverlays = config["overlays"] as JsonObject;
@@ -385,12 +416,15 @@ public static class HudConfig
                     continue;
                 }
 
+                // ZEROSCALE_01 — a non-positive scale does not remove the layer, it collapses it to
+                // a 32x32 backend sliver (the Math.Max floor in QuantizeBackendSize), which reads as
+                // a rendering bug rather than as bad data. "Switched off" is a zero CROP RECT.
                 Frac parsedScale;
                 try { parsedScale = ParseScaleStrict(scaleNode); }
                 catch (System.Exception swallowed)
                 {
                     issues.Add($"Unreadable scale for '{kvp.Key}'");
-                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                     continue;
                 }
 
@@ -439,6 +473,8 @@ public static class HudConfig
             }
         }
 
+        // The same fault seen from the other side: a layer in crops_1080p with no companion entry
+        // is exported with a default scale, position or z that the user never chose.
         foreach (string key in cropKeys)
         {
             if (rawScales != null && !HasKeyIgnoreCase(rawScales, key))
@@ -451,6 +487,10 @@ public static class HudConfig
                 issues.Add($"Missing z order for '{key}'");
         }
 
+        // KEYCASE_01 — JsonObject indexes ordinally while every element-key comparison in the Crop
+        // Tool editor is OrdinalIgnoreCase, so "Loot" and "loot" are two entries to the file and one
+        // element to the user. Whichever the reader reaches first wins, and the other is edited
+        // forever without effect.
         foreach (string section in RequiredSections)
         {
             if (config[section] is not JsonObject sectionObj) continue;
@@ -465,6 +505,9 @@ public static class HudConfig
             }
         }
 
+        // IDEA_1 — crops_source is optional, but a malformed entry is still a fault: the Crop Tool
+        // reads it in preference to crops_1080p when rehydrating an element for editing, so a bad
+        // rect here is what the user is handed to edit.
         if (config[SourceCropsSection] is JsonObject sourceSection)
         {
             foreach (var kvp in sourceSection)
@@ -486,6 +529,7 @@ public static class HudConfig
                 int sx = ReadArrayInt(srcRect, 2);
                 int sy = ReadArrayInt(srcRect, 3);
 
+                // A zero rect here mirrors the "layer switched off" crop and is not a fault.
                 if (sw == 0 && sh == 0 && sx == 0 && sy == 0) continue;
 
                 if (sw <= 0 || sh <= 0)

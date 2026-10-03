@@ -7,6 +7,7 @@
 | :--- | :--- | :--- | :--- |
 | `src/FreeVideoStudio.Core/Media/CoordinateMath.cs` | `CoordinateConstants`, `CoordinateMath`, `Frac` | `CoordinateConstants.PortraitW`, `PortraitH`, `InternalW`, `InternalH`, `BackendScale`; `Frac.ScaleRound`, `SnapZoomWindow` | Canvas size constants (`CoordinateConstants`) and the exact-fraction transforms between 16:9 landscape source and 9:16 portrait export. |
 | `src/FreeVideoStudio.Core/Media/OutputTimeline.cs` | `OutputTimeline`, `Chunk`, `Cut`, `Insertion` | `SourceToOutput`, `OutputToSourceRelative`, `SnapInsertionPoint`, `NormalizeCuts`, `InsertionAt`, `Create` | Authoritative mathematical model for single-clip linear output durations and frame-to-output conversions. |
+| `src/FreeVideoStudio.Core/Media/MemePlacement.cs` | `MemePlacement`, `MemePresentationMode`, `MemeOverlayCorner`, `MemeOverlaySize`, `MemeOverlayLayout` | `ToInsertions`, `InlineOnly`, `CornerOnly`, `OutputDurationSec`, `VisibleInterval`, `Place`, `ScaleFilter` | MEMEMODE_01 — a meme is a full-screen insertion or a zero-duration corner overlay; the one overlay geometry. **⚠ CO-GOVERNED BY: 03**|
 | `src/FreeVideoStudio.Core/Media/HudAutoDetector.cs` | `HudAutoDetector`, `OnlineFrameAccumulator` | `DetectHudRegions`, `ScanFrame`, `SampleFramesAsync` | Automated HUD element detection and coordinate bounds discovery via constant-memory online sequential streaming (≤ 25 MB footprint). |
 | `src/FreeVideoStudio.Core/Media/HudConfig.cs` | `HudConfig` | `Sanitize`, `HudKeys`, `GetContentCrop` | HUD configuration schema validation, profile definitions, and content-space coordinates. |
 | `src/FreeVideoStudio.Core/Media/HudImageOps.cs` | `HudImageOps` | `Crop`, `Threshold`, `MatchTemplate`, `ComputeWelfordVariance` | Low-level pixel buffer extraction, template matching, and online streaming variance accumulation. |
@@ -73,6 +74,9 @@ $$\text{TotalOutputSeconds} = \sum_{c \in \text{Chunks}} \text{Duration}(c)$$
    $$\Delta t_{\text{out}} = 0$$
 4. **`Insertion` (Meme Cutaway):** Consumes 0 source time; occupies output time equal to meme duration:
    $$\Delta t_{\text{out}} = D_{\text{meme}}$$
+   Only FULL SCREEN memes are insertions (MEMEMODE_01). A CORNER OVERLAY meme is never an `Insertion`:
+   $$\Delta t_{\text{out}}(\text{corner}) = 0$$
+   `MemePlacement.ToInsertions` drops it, so `OutputTimeline`, `ProjectDocument.BuildTimeline`, `CompositeTimeline`, the editors and every size estimate agree by construction.
 
 ### Freeze Insertion Invariant
 A freeze is an insertion, never a replacement. Freezing at t_anchor for duration D holds the exact video frame at t_anchor for D seconds, and resumes playback from t_anchor:
@@ -150,6 +154,12 @@ Memes are anchored to clip-relative source seconds (`AtSourceSecRelative`). The 
 ---
 
 ## 7. Meme Placement & Scrubbing Physics  {#TL-MEME}
+* **Two Presentation Modes (MEMEMODE_01) — NON-NEGOTIABLE:**
+  * `InlineFullScreen` (default, and every meme saved before MEMEMODE_01): interrupts the gameplay; adds `DurationSec` to the output. All rules below apply.
+  * `CornerOverlay`: plays OVER the running gameplay in one of four corners (`MemeOverlayCorner`, default BottomRight), Small / Medium / Large (`MemeOverlaySize`, default Medium), with optional sound (`PlaySound`). It adds ZERO output seconds and owns only a VISIBILITY INTERVAL on the GAMEPLAY clock (output seconds with full-screen memes not counted):
+    $$[\,t_s,\ t_e\,) = [\,\text{SourceToOutput}_{\text{gameplay}}(t_{\text{anchor}}),\ \min(t_s + D_{\text{meme}},\ T_{\text{gameplay}})\,)$$
+    (`MemePlacement.VisibleInterval`; clipped, never lengthening). Music, voice-over, cuts and other memes after it do not move. A full-screen cutaway inside the interval pauses it with the gameplay (the export overlays before splicing).
+  * Corner overlays are NOT snapped by D7/D8 (only pushed out of deleted footage), may overlap anything, and in the Merger are always `EdlMemePlacement.Mid` at their exact source µs. Switching a meme FULL SCREEN → CORNER removes its length; CORNER → FULL SCREEN adds it back and re-applies D7/D8 at the anchor.
 * **Placement:** Anchored to clip-relative source seconds (`AtSourceSecRelative`). Placed on finished timeline in Speed Editor. `MemePlacement.Id` is a generated alphanumeric identifier, never derived from filename.
 * **Snapping:** `SnapInsertionPoint` pushes placement forward past cuts, freezes, or speed blocks. Memes cannot interrupt speed blocks or share timestamps. Cuts delete contained memes.
 * **Marker Count Is Ruler-Dependent (MEME_06) — NON-NEGOTIABLE:**

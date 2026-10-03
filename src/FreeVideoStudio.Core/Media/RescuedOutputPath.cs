@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Globalization;
 using System.IO;
 using FreeVideoStudio.Core.Infrastructure;
@@ -40,8 +43,9 @@ namespace FreeVideoStudio.Core.Media;
 /// use GracefulProcessTerminator, the other was left calling Kill raw). Anything that both
 /// pipelines do identically belongs here, once, so a fix cannot miss a caller.
 ///
-/// ⚠️ THE PREFIX AND LOG TAG ARE PARAMETERS, NOT CONSTANTS. "Fortnite-Video-RECOVERED-" and
+/// ⚠️ THE PREFIX AND LOG TAG ARE PARAMETERS, NOT CONSTANTS. "FreeVideoStudio-RECOVERED-" and
 /// "Merged-Videos-RECOVERED-" are user-visible and tell the user which tool produced the file;
+/// "Merged-Videos-RECOVERED-" (<see cref="OutputFileNaming"/>) are user-visible and tell the user which tool produced the file;
 /// "Output" and "Merger" are how crash digests attribute the failure. Both must stay distinct.
 /// ══════════════════════════════════════════════════════════════════════════════════════════════
 /// </summary>
@@ -63,7 +67,7 @@ internal static class RescuedOutputPath
     /// </summary>
     /// <param name="sourcePath">The finished render to preserve. Missing file =&gt; null.</param>
     /// <param name="tempDirectory">Destination root. Created if absent — never presumed to exist.</param>
-    /// <param name="filenamePrefix">User-visible prefix, e.g. "Fortnite-Video-RECOVERED-".</param>
+    /// <param name="filenamePrefix">User-visible prefix, e.g. "FreeVideoStudio-RECOVERED-".</param>
     /// <param name="logTag">CoreLogger tag, e.g. "Output" or "Merger".</param>
     /// <param name="failureMessage">
     /// The caller's own wording for the failure line ("Could not preserve the finished render" /
@@ -78,6 +82,7 @@ internal static class RescuedOutputPath
     {
         try
         {
+            // Nothing to rescue. First statement, unchanged from both original implementations.
             if (!File.Exists(sourcePath)) return null;
 
             Directory.CreateDirectory(tempDirectory);
@@ -86,6 +91,8 @@ internal static class RescuedOutputPath
 
             for (int idx = 0; idx <= MaxIndex; idx++)
             {
+                // idx 0 keeps the historical un-suffixed name; 1..n keep the historical "-{n}"
+                // suffix format, so existing user folders and support notes still match.
                 string candidate = Path.Combine(
                     tempDirectory,
                     idx == 0 ? $"{filenamePrefix}{stamp}.mp4"
@@ -93,16 +100,22 @@ internal static class RescuedOutputPath
 
                 try
                 {
+                    // OUTPATH_01 primitive: FileMode.CreateNew + FileShare.None is an ATOMIC
+                    // create-or-fail at the filesystem level. Exactly one caller can win a given
+                    // name, in this process or any other.
                     using (new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                     {
                     }
                 }
                 catch (IOException swallowed)
                 {
-                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+                    // Taken by an existing file, or lost the race to a sibling rescue. Next index.
+                    global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                     continue;
                 }
 
+                // ⚠️ OVERWRITE THE ZERO-BYTE PLACEHOLDER, never delete-then-move: deleting it
+                // reopens the very race the reservation just closed.
                 File.Move(sourcePath, candidate, overwrite: true);
                 return candidate;
             }

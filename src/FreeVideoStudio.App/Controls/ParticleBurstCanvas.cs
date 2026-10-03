@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -93,6 +96,9 @@ public sealed class ParticleBurstCanvas : Control
         switch (preset)
         {
             case BurstPreset.MarkerDrop:
+                // TONE_01: the marker burst is the app's success colour, so it must follow the
+                // token. The lighter spark tint is derived from it rather than being a second
+                // literal that could drift out of step with the ring.
                 var okC = TokenColour("AppSuccessColor", Color.FromRgb(63, 156, 107));
                 EmitRing(anchor, Color.FromArgb(180, okC.R, okC.G, okC.B), maxRadius: 60, ringCount: 2);
                 EmitSparks(anchor, Lighten(okC, 220, 45), sparkCount: 8, speedMin: 40, speedMax: 120);
@@ -188,10 +194,10 @@ public sealed class ParticleBurstCanvas : Control
     {
         var colors = new[]
         {
-            TokenColourA("AppSuccessColor", Color.FromRgb(63, 156, 107), 230),
+            TokenColourA("AppSuccessColor", Color.FromRgb(63, 156, 107), 230),   // TONE_01
             Color.FromArgb(230, 59, 130, 246),
             Color.FromArgb(230, 250, 204, 21),
-            TokenColourA("AppDangerColor", Color.FromRgb(168, 50, 50), 230),
+            TokenColourA("AppDangerColor", Color.FromRgb(168, 50, 50), 230),     // TONE_01
             Color.FromArgb(230, 168, 85, 247),
             Color.FromArgb(230, 236, 72, 153),
         };

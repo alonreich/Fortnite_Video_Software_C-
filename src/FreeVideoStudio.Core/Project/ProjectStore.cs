@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.Text.Json.Nodes;
@@ -62,6 +65,9 @@ public static class ProjectStore
         {
             path = NormalizeExtension(path);
 
+            // The backup is taken from the file that is ON DISK RIGHT NOW, before the new bytes are
+            // written. Taking it afterwards would back up the save that just happened, which is
+            // worth nothing at the exact moment it is needed.
             TryBackup(path);
 
             JsonObject payload = ProjectSerializer.Write(document);
@@ -72,12 +78,12 @@ public static class ProjectStore
         }
         catch (UnauthorizedAccessException swallowed)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return ProjectIoResult.Fail("Windows would not let the app write to that folder. Try a folder inside your Documents.");
         }
         catch (DirectoryNotFoundException swallowed3)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
             return ProjectIoResult.Fail("That folder no longer exists.");
         }
         catch (IOException ex)
@@ -123,6 +129,9 @@ public static class ProjectStore
         string backup = path + BackupSuffix;
         if (!File.Exists(backup)) return null;
 
+        // The live file is damaged. The previous generation is the only remaining copy of this
+        // work, so it is tried before giving up — but the original error is replaced only if the
+        // backup actually parses, so a user with two broken files still sees the real reason.
         ProjectDocument? fromBackup = TryReadOne(backup, out string? backupError);
         if (fromBackup == null)
         {
@@ -153,13 +162,13 @@ public static class ProjectStore
         catch (UnauthorizedAccessException swallowed2)
         {
             error = "Windows would not let the app read that file.";
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
         catch (IOException ex)
         {
             error = $"The project could not be read: {ex.Message}";
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(ex);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
         catch (Exception ex)
@@ -187,12 +196,16 @@ public static class ProjectStore
         {
             if (!File.Exists(path)) return;
 
+            // A zero-length live file is the residue of an interrupted write. Promoting it over a
+            // good backup would destroy the last intact copy, so it is left alone.
             if (new FileInfo(path).Length == 0) return;
 
             File.Copy(path, path + BackupSuffix, overwrite: true);
         }
         catch (Exception ex)
         {
+            // A failed backup must never block a save. The user asked to save; losing the previous
+            // generation is strictly better than losing the work in front of them.
             CoreLogger.Swallowed(ex);
         }
     }

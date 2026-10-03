@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -94,7 +100,7 @@ public partial class VideoMergerWindow
 
         double w = film.Bounds.Width;
         if (w <= 0) w = MarkersCanvasCtl?.Bounds.Width ?? 0;
-        if (w <= 0) { ScheduleLaneRefresh(); return; }
+        if (w <= 0) { ScheduleLaneRefresh(); return; }   // not laid out yet: try again shortly
 
         string key = $"{w:F0}|{_timeline.Signature}";
         if (key == _laneKey) return;
@@ -177,6 +183,7 @@ public partial class VideoMergerWindow
         using (var g = geo.Open())
         {
             int n = peaks.Length;
+            // Scaled to the clip's own loudest moment so a quiet clip still reads as a shape.
             float top = 0.05f;
             foreach (var v in peaks) if (v > top) top = v;
             g.BeginFigure(new Avalonia.Point(0, 1), true);
@@ -203,6 +210,7 @@ public partial class VideoMergerWindow
     /// <summary>Runs on the thread pool: disk cache first, else ffmpeg (keyframes only), painting as frames land.</summary>
     private async Task BuildFilmTileAsync(LaneTile t, int generation, CancellationToken ct)
     {
+        // 1. Disk cache — a clip seen in any earlier session paints at once.
         byte[]? png = await Task.Run(() => Infrastructure.LaneDiskCache.TryRead(t.CacheKey, ".png"), ct).ConfigureAwait(false);
         if (png != null)
         {
@@ -221,6 +229,7 @@ public partial class VideoMergerWindow
             }
         }
 
+        // 2. ffmpeg — the fixed grid of this clip, painted frame by frame.
         string ffmpeg = _laneFfmpeg ?? "ffmpeg";
         List<Image>? shown = null;
         WriteableBitmap? bitmap = null;

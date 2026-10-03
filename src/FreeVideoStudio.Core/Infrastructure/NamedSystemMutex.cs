@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Diagnostics;
 
 namespace FreeVideoStudio.Core.Infrastructure;
@@ -21,6 +24,9 @@ public sealed class NamedSystemMutex : IDisposable
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException or IOException)
         {
+            // USERSCOPE_01 — e.g. the name is held by ANOTHER Windows account with a DACL that
+            // excludes this one. Every caller already handles LockException (degrade and move on);
+            // a raw UnauthorizedAccessException from a constructor escaped all of them.
             throw new LockException($"Named mutex '{name}' could not be opened: {ex.GetType().Name}: {ex.Message}");
         }
     }
@@ -57,7 +63,7 @@ public sealed class NamedSystemMutex : IDisposable
             catch (AbandonedMutexException swallowed)
             {
                 guard._ownsHandle = true;
-                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+                global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
                 return guard;
             }
 

@@ -1,4 +1,7 @@
-﻿using System.Collections.Concurrent;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/08_APPLICATION_COMPOSITION.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
 using FreeVideoStudio.Core.Abstractions;

@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -41,6 +47,21 @@ public static class WindowBoundsHelper
             var state = Services.InProcessSessionState.ReadSnapshot();
             bool hasOwnBounds = state.TryGetPropertyValue(key, out var ownBounds) && ownBounds is JsonObject;
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // FIRSTFIT_01 — THE PRECEDENCE, AND WHY IT IS IN THIS ORDER.
+            //
+            //   1. This window's OWN saved bounds. Once the user has moved or resized a window,
+            //      that is the answer, forever. Nothing below may override it.
+            //   2. The seed window's bounds (WINSEED_01) — the Granular editor opening over the
+            //      geometry the Main App is already using is a better first impression than any
+            //      computed default, because it matches what the user is looking at.
+            //   3. The 16:9 display fit. Reached only when there is nothing to remember and
+            //      nothing to borrow, i.e. genuinely the first run on this machine.
+            //
+            // ⚠️ The fit is a FIRST-RUN DEFAULT, NOT A POLICY. The moment the user drags or
+            // resizes the window, the debounced save writes its own key and step 1 wins from then
+            // on — that is the whole contract. Never call the fit on a later open.
+            // ══════════════════════════════════════════════════════════════════════════════════
             bool applied;
             if (!hasOwnBounds && seedFromKey != null)
                 applied = ApplyBounds(window, state, seedFromKey, sizeAndPositionOnly: true);
@@ -76,7 +97,7 @@ public static class WindowBoundsHelper
                     try { snapshot = WindowSnapshot.Capture(window); }
                     catch (System.Exception swallowed2)
                     {
-                        global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+                        global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
                         return;
                     }
 

@@ -112,7 +112,7 @@ public sealed class OutputSizeEstimateTests
     }
 
     [Fact]
-    public void Merger_UsesTheEditListLength_WhenKnown()
+    public void Merger_UsesTheEditListLength_WhenKnown()   // MERGESIZE_01
     {
         EstimateMedia[] sources = [Source("a", 10, 6000), Source("b", 30, 12000)];
         var plain = OutputSizeEstimator.CalculateMerger(sources, 1, 100);
@@ -125,7 +125,7 @@ public sealed class OutputSizeEstimateTests
     }
 
     [Fact]
-    public void Merger_BelowFullQuality_IsAlwaysSmaller_AndMatchesTheExportTarget()
+    public void Merger_BelowFullQuality_IsAlwaysSmaller_AndMatchesTheExportTarget()   // MERGEQUALITY_01
     {
         EstimateMedia[] sources = [Source("a", 10, 6000), Source("b", 30, 12000)];
         var full = OutputSizeEstimator.CalculateMerger(sources, 1, 100);
@@ -214,7 +214,7 @@ public sealed class OutputSizeEstimateTests
         worker.Dispose();
         await worker.Completion.WaitAsync(TimeSpan.FromSeconds(3));
         while (callbacks.TryDequeue(out var callback)) callback();
-        worker.Request(2);
+        worker.Request(2); // Safe after disposal; never starts another worker.
         Assert.False(published);
     }
 }

@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using Avalonia.Controls;
 using FreeVideoStudio.App.Infrastructure;
 using FreeVideoStudio.App.Services;
@@ -24,6 +26,13 @@ public partial class SettingsWindow : Window
             kb.AggressiveVolumeUp = _pendingKeys["AggressiveVolumeUp"];
             kb.AggressiveVolumeDown = _pendingKeys["AggressiveVolumeDown"];
 
+            // DUCKSTRENGTH_01 — the Music vs. game sound switches and handles. AudioProtection is the
+            // legacy master switch; kept true while either helper is on.
+            _pendingDefaults.DuckingEnabled = Mix.DuckingEnabled;
+            _pendingDefaults.CarvingEnabled = Mix.CarvingEnabled;
+            _pendingDefaults.DuckingStrength = Mix.DuckingStrengthValue;
+            _pendingDefaults.CarvingStrength = Mix.CarvingStrengthValue;
+            _pendingDefaults.AudioProtection = Mix.DuckingEnabled || Mix.CarvingEnabled;
             s.Defaults = _pendingDefaults;
 
             s.ConfirmVideoMergerRemove = ConfirmVideoMergerRemove;
@@ -45,12 +54,12 @@ public partial class SettingsWindow : Window
             }
             s.AutoUpdateChecks = AutoUpdateChecks;
             s.MergerThumbnailScraper = MergerThumbnailScraper;
+            s.MergerMatchClipLoudness = MergerMatchClipLoudness;
             s.UiSoundsEnabled = UiSoundsEnabled;
             s.UiSoundVolume = Math.Clamp(UiSoundVolume, 0, 100);
 
             s.ThemeMode = _pendingThemeMode;
             s.FontScale = _pendingFontScale;
-            s.LoudnessNormalizationPrompt = _pendingLoudnessPrompt;
             s.PeakFlatteningPrompt = _pendingPeakPrompt;
             s.VoiceProtectGameMode = _pendingVoiceProtectGame;
             s.VoiceProtectMusicMode = _pendingVoiceProtectMusic;
@@ -62,6 +71,8 @@ public partial class SettingsWindow : Window
             s.AiZoomMinScale = _pendingAiZoomMinScale;
             s.AiZoomAvoidHud = _pendingAiZoomAvoidHud;
             s.AiZoomDeadbandPercent = _pendingAiZoomDeadbandPercent;
+
+            ApplyPendingOutputSettings(s);
         });
 
         if (!committed)
@@ -70,6 +81,8 @@ public partial class SettingsWindow : Window
             if (btn != null) btn.Content = "SAVE FAILED";
             return;
         }
+
+        SyncMergerOutputDirectoryState();
 
         ThemeManager.ApplyTheme(_pendingThemeMode);
         ThemeManager.ApplyFontScale(_pendingFontScale);

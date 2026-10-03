@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -112,6 +115,7 @@ internal sealed class HardwareTelemetrySampler : IDisposable
                     {
                         int core = int.TryParse(parts[0].Trim(), out int c) ? c : 0;
                         int enc = int.TryParse(parts[1].Trim(), out int ex) ? ex : 0;
+                        // TELEMETRY_01 — this is the cross-thread write. Volatile, not a plain store.
                         Volatile.Write(ref _lastGpu, Math.Max(0, Math.Min(100, Math.Max(core, enc))));
                     }
                 }
@@ -137,6 +141,12 @@ internal sealed class HardwareTelemetrySampler : IDisposable
 
         try
         {
+            // TELEMETRY_01 — routed through the project's bounded ladder instead of a bare Kill.
+            // attemptQuitCommand: false because nvidia-smi has no redirected stdin and nothing to
+            // finalize; cooperativeGraceMs: 0 so stopping the overlay stays instant. What the
+            // ladder adds over the two different bare Kill calls this replaced (one with
+            // entireProcessTree, one without) is a single consistent path plus a bounded exit
+            // confirmation, so teardown cannot proceed while the child is still dying.
             FreeVideoStudio.Core.Infrastructure.GracefulProcessTerminator.Terminate(
                 previous, "Telemetry", attemptQuitCommand: false, cooperativeGraceMs: 0);
         }
@@ -188,6 +198,9 @@ internal sealed class HardwareTelemetrySampler : IDisposable
     private int GetMemUsage()
     {
         MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
+        // AOTSAFETY_03: Marshal.SizeOf(Type) asks the runtime to build marshalling code for a
+        // type it only knows reflectively — unavailable after AOT compilation. The generic
+        // overload is computed at compile time and yields the identical size.
         memStatus.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
         if (GlobalMemoryStatusEx(ref memStatus))
         {

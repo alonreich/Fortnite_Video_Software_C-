@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.VisualTree;
@@ -186,6 +189,8 @@ public static class FloatingNotice
             {
                 Text = text,
                 Foreground = accent,
+                // ANCHOR_01: an anchored notice sits beside a control, so it is sized like a
+                // tooltip. The centred one is a full-window banner and keeps its 24pt.
                 FontSize = Infrastructure.ThemeManager.ScaledFontSize(anchor != null ? 12 : 24),
                 FontWeight = FontWeight.Bold,
                 TextWrapping = TextWrapping.Wrap,
@@ -227,6 +232,9 @@ public static class FloatingNotice
     /// </summary>
     private static (double StartY, double EndY) Place(Canvas host, Border pill, Control? anchor)
     {
+        // ANCHOR_01 — park it just ABOVE the anchor, horizontally centred on it, and let it drift
+        // up only a short way so it never leaves the control's neighbourhood. Any failure to map
+        // the anchor's position falls through to the centred placement below.
         if (anchor != null)
         {
             try
@@ -244,8 +252,10 @@ public static class FloatingNotice
                         double ax = tl.Value.X + (anchor.Bounds.Width - pwA) / 2.0;
                         double ay = tl.Value.Y - phA - 10;
 
+                        // If there is no room above, sit under it instead.
                         if (ay < 4) ay = tl.Value.Y + anchor.Bounds.Height + 10;
 
+                        // Keep it inside the host no matter where the control is.
                         if (hostWa > 0) ax = Math.Max(4, Math.Min(hostWa - pwA - 4, ax));
                         else ax = Math.Max(4, ax);
 

@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System.Diagnostics;
 using FreeVideoStudio.Core.Infrastructure;
 using Microsoft.Win32;
@@ -11,6 +13,24 @@ internal static class InstallDiscovery
     public static string Store => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "FreeVideoStudioMigration");
     public static string[] Executables => LegacyProductIdentity.ExecutableNames.Append(InstallPayload.ExecutableName).ToArray();
 
+    /// <summary>
+    /// NOSPACE_01 — install destinations a machine journal may legitimately name: today's
+    /// space-free folder, and the spaced folder every journal written before NOSPACE_01 names.
+    /// </summary>
+    public static string[] KnownDestinations =>
+        [UpgradeFiles.FullPath(Destination), UpgradeFiles.FullPath(DeploymentFootprint.LegacyInstallFolder)];
+
+    /// <summary>
+    /// NOSPACE_01 — where a COMPACT installer reuses unchanged runtime files from. It used to be
+    /// <see cref="Destination"/> unconditionally, which does not exist yet when the update is also
+    /// the one that moves the install out of the spaced folder: every compact update for such a
+    /// machine would have failed with "Download the full installer". The first existing root that
+    /// holds an install manifest wins, Destination first.
+    /// </summary>
+    public static string? ReuseRoot(IEnumerable<string> roots) =>
+        new[] { Destination }.Concat(roots)
+            .FirstOrDefault(r => File.Exists(Path.Combine(r, InstallPayload.ManifestName)));
+
     public static string[] FindRoots()
     {
         if (Directory.Exists(Destination) && Directory.EnumerateFileSystemEntries(Destination).Any() && !IsProductDirectory(Destination))
@@ -18,7 +38,9 @@ internal static class InstallDiscovery
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Destination };
         foreach (Environment.SpecialFolder parent in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 })
         {
-            foreach (string name in new[] { LegacyProductIdentity.DisplayName, LegacyProductIdentity.CompactName })
+            // NOSPACE_01 — the spaced current-brand folder is a legacy root too: the install moves it
+            // to the space-free Destination exactly like a previous-brand folder.
+            foreach (string name in new[] { LegacyProductIdentity.DisplayName, LegacyProductIdentity.CompactName, DeploymentFootprint.LegacyInstallFolderName })
             {
                 string path = Path.Combine(Environment.GetFolderPath(parent), name);
                 if (IsProductDirectory(path)) roots.Add(UpgradeFiles.FullPath(path));

@@ -1,7 +1,10 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md, docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using Avalonia;
-using Avalonia.Controls;
+using Avalonia.Controls;   // ResourceNodeExtensions.TryFindResource
 using Avalonia.Media;
 using FreeVideoStudio.Core.Infrastructure;
 using FreeVideoStudio.Core.Media;

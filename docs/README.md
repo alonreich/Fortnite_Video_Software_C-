@@ -1,4 +1,10 @@
-# FREE VIDEO STUDIO: ARCHITECTURAL SPECIFICATIONS
+﻿# FREE VIDEO STUDIO: ARCHITECTURAL SPECIFICATIONS
+
+> ### ✅ REBRAND COMPLETE — read [`REBRAND_MIGRATION.md`](REBRAND_MIGRATION.md)
+> This product was renamed to **Free Video Studio** (`FreeVideoStudio`). The rebrand record lists the
+> full old→new identity map, exactly what happens when an old-brand install updates, the automatic
+> output naming (`FreeVideoStudio-N.mp4` / `Merged-Videos-N.mp4`, editable in Settings › Output Files)
+> and the only two files allowed to contain the previous name.
 
 ## 1. Mission Architecture
 Free Video Studio is a specialized, hardware-accelerated desktop video editing suite built with C# and Avalonia UI on .NET 9 (Native AOT compatible). The system transforms raw 16:9 widescreen gameplay footage into master-quality 9:16 portrait montages, mobile highlights, and social video deliverables with zero manual keyframing.
@@ -7,7 +13,7 @@ Free Video Studio is a specialized, hardware-accelerated desktop video editing s
 
 `FreeVideoStudio.sln` contains the renamed `src/FreeVideoStudio.App`, `src/FreeVideoStudio.Core`, `tests/FreeVideoStudio.App.Tests` and `tests/FreeVideoStudio.Core.Tests` projects. The application assembly is `FreeVideoStudio`; its root namespace remains `FreeVideoStudio.App`. The core assembly and namespace are `FreeVideoStudio.Core`. `FvsBuild`, `FvsVerify`, `.fvsproj` and the existing `FVS_*` environment variables retain their internal names.
 
-Use [distribution identity](09_DISTRIBUTION_AND_RELEASE.md#DIST-IDENTITY) for packaging names and local validation commands, and [storage migration](05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-REBRAND) for canonical AppData paths and legacy compatibility. `project_structure.txt` at the repository root is the compact entry point. Repository links are relative to the checkout; the existing GitHub repository address is unchanged by the local rebrand.
+Use [distribution identity](09_DISTRIBUTION_AND_RELEASE.md#DIST-IDENTITY) for packaging names and local validation commands, and [storage migration](05_SYSTEM_LIFECYCLE_STORAGE.md#SYS-REBRAND) for canonical AppData paths and legacy compatibility. `project_structure.txt` at the repository root is the compact entry point. Repository links are relative to the checkout; the GitHub repository is `alonreich/Free_Video_Studio` ([`REBRAND_MIGRATION.md`](REBRAND_MIGRATION.md)).
 
 ---
 
@@ -45,7 +51,7 @@ CanvasMath.cs  ⚠CompositeTimeline.cs  CoordinateMath.cs  ⚠GranularSpeedEdito
 ⚠MainWindow.axaml.cs  MainWindow.Canvas.cs  ⚠MainWindow.Controls.cs  MainWindow.Shortcuts.cs
 MainWindow.Wireup.cs  ⚠MergeClipGraph.cs  ⚠MergedTimeline.cs  ⚠MergeEditorBridge.cs
 ⚠MergeEdl.cs  ⚠MergerPreviewPlan.cs  ⚠MergerSession.cs  ⚠MusicPadAlignment.cs
-⚠MusicWizardWindow.axaml.cs  ⚠OutputTimeline.cs  ⚠PhoneFrameMockup.axaml.cs  TimelineKnob.cs
+⚠MemePlacement.cs  ⚠MusicWizardWindow.axaml.cs  ⚠OutputTimeline.cs  ⚠PhoneFrameMockup.axaml.cs  TimelineKnob.cs
 TimelineLanesControl.axaml.cs  TimelineViewModel.cs  ⚠VideoMergerWindow.EdlPreview.cs
 ⚠VideoMergerWindow.History.cs  ⚠VideoMergerWindow.Lanes.cs  ⚠VideoMergerWindow.Session.cs
 ⚠VideoMergerWindow.Timeline.cs  ⚠VideoMergerWindow.TimelineSelect.cs  ⚠VoiceOverWindow.axaml.cs
@@ -63,11 +69,11 @@ AudioFilterChain.cs  AudioLoudnessProbe.cs  ⚠FluidVolumeSlider.cs  ⚠MainWind
 **[`03_FFMPEG_EXPORT_PIPELINE.md`](03_FFMPEG_EXPORT_PIPELINE.md)** — FFmpeg export pipeline — encoder discovery, zoom filtergraph, concat/bitrate, meme concat & cutaway preview, fades, progress, binary paths, meme library.
 
 ```
-⚠CompositeTimeline.cs  EncoderManager.cs  ExportColorPolicy.cs  ExportTimingTag.cs
+AudioTempoFilterBuilder.cs  CornerMemeOverlayGraph.cs  ⚠CompositeTimeline.cs  EncoderManager.cs  ExportColorPolicy.cs  ExportTimingTag.cs
 ExportViewModel.cs  FfmpegDiagnosticCollector.cs  ⚠FfmpegJobLifetime.cs  FramePtsProbe.cs
 GpuCapabilityProbe.cs  GranularSpeedBuilder.cs  HardwareCapability.cs  HardwareScanner.cs  IntroTag.cs
 MainWindow.SizeEstimate.cs  MemeAssets.cs  MemeCatalog.cs  ⚠MemeLoudness.cs  MemePreviewDirector.cs
-MergeClipAnalyzer.cs  ⚠MergeClipGraph.cs  ⚠MergedTimeline.cs  ⚠MergeEditorBridge.cs
+MergeClipAnalyzer.cs  ⚠MergeClipGraph.cs  ⚠MergedTimeline.cs  ⚠MergeEditorBridge.cs  OutputFileNaming.cs
 ⚠MergeEdl.cs  ⚠MergerPreviewPlan.cs  MergerWorker.cs  MobileFilterBuilder.cs
 ⚠MusicPadAlignment.cs  OutputFileSize.cs  OutputSizeEstimator.cs  ProcessWorker.cs
 QualityLadder.cs  TextOverlayGenerator.cs  TwoPassEncoding.cs  ⚠VideoMergerWindow.EdlPreview.cs
@@ -81,8 +87,9 @@ AmbientBubblesBackground.cs  AvaloniaApp.axaml  CoachOverlay.cs  ConfirmDialogWi
 FloatingNotice.cs  ⚠FluidVolumeSlider.cs  GrabCursors.cs  ⚠GranularSpeedEditorWindow.axaml.cs
 ⚠GranularSpeedEditorWindow.History.cs  ⚠GranularSpeedEditorWindow.Merge.cs  ⚠IUserNotifier.cs
 ⚠LaneDiskCache.cs  MainViewModel.cs  ⚠MainWindow.axaml.cs  ⚠MainWindow.Controls.cs  MemePickerWindow.axaml
-MemeWallControl.axaml  ⚠PhoneFrameMockup.axaml.cs  PreviewDetachController.cs  PreviewMonitorWindow.axaml
-ProgressiveLanes.cs  SettingsWindow.axaml.cs  SpinningWheelSlider.cs  UpdateAvailableWindow.axaml.cs
+MemeThumbnailCache.cs  ⚠MemeChoiceViewModel.cs  ⚠CornerMemeOverlayPresenter.cs  ⚠GranularSpeedEditorWindow.Memes.cs
+⚠MainWindow.CornerMemes.cs  ⚠VideoMergerWindow.CornerMemes.cs  ⚠PhoneFrameMockup.axaml.cs  PreviewDetachController.cs  PreviewMonitorWindow.axaml
+ProgressiveLanes.cs  SettingsWindow.axaml.cs  SettingsWindow.Output.cs  SpinningWheelSlider.cs  UpdateAvailableWindow.axaml.cs
 ⚠VideoMergerWindow.EdlPreview.cs  ⚠VideoMergerWindow.Lanes.cs  VideoMergerWindow.Playhead.cs
 ⚠VideoMergerWindow.Session.cs  ⚠VideoMergerWindow.TimelineSelect.cs  ViewModelBase.cs  WaveformPeaks.cs
 ⚠WindowBoundsHelper.cs  WindowResizeGrip.cs
@@ -91,7 +98,7 @@ ProgressiveLanes.cs  SettingsWindow.axaml.cs  SpinningWheelSlider.cs  UpdateAvai
 **[`05_SYSTEM_LIFECYCLE_STORAGE.md`](05_SYSTEM_LIFECYCLE_STORAGE.md)** — System lifecycle & storage — mutexes, logging pipeline, window bounds, deferred-close contract, crash recovery, atomic writes, dev build harness & fix sentinels, signing.
 
 ```
-AppDataPaths.cs  AppDataPathsTests.cs  LegacyAppDataNames.txt
+AppDataPaths.cs  AppDataPathsTests.cs  LegacyAppDataNames.txt  LegacyResidueSweep.cs  RebrandTests.cs
 ⚠ApplicationPaths.cs  ⚠AtomicJsonFile.cs  ⚠Build.cmd  dev_build.cmd  ⚠CodeSigning.cs  CooperativeShutdownGate.cs
 CoreLogger.cs  CrashLogDigest.cs  CropConfigDefaults.cs  CropConfigStore.cs  DeploymentLifecycle.cs
 ⚠dev.cmd  DiskSpaceGuard.cs  FvsBuild/Program.cs  ⚠GranularSpeedEditorWindow.axaml.cs
@@ -106,7 +113,7 @@ UiStateStore.cs  ⚠UpdateService.cs  ⚠VideoMergerWindow.Session.cs  ⚠Window
 
 ```
 AotJson.cs  ⚠AtomicJsonFile.cs  FreeVideoStudio.App.csproj  ⚠IProjectStore.cs
-⚠MainWindow.Project.cs  ⚠MergeEdl.cs  ⚠OutputTimeline.cs  ⚠ProjectDocument.cs  ProjectSerializer.cs
+⚠MainWindow.Project.cs  ⚠MergeEdl.cs  ⚠OutputTimeline.cs  ⚠ProjectDocument.cs  ProjectSerializer.cs  MemePresentationJson.cs
 ⚠ProjectSession.cs  ProjectStore.cs  RecentProjects.cs  ⚠VideoMergerWindow.History.cs
 ```
 
@@ -131,13 +138,15 @@ UserFacingFaultSink.cs  WindowsOnlyFactAttribute.cs
 
 ```
 ⚠Build.cmd  dev_build.cmd  .gitattributes  ⚠.github/workflows/ci.yml  .github/workflows/lfs-guard.yml
-RuntimePayloadManifest.cs  Staging.cs  ⚠UpdateService.cs
+GitHubReleasePublisher.cs  RuntimePayloadManifest.cs  Staging.cs  ⚠UpdateService.cs
 ```
+
+**[`REBRAND_MIGRATION.md`](REBRAND_MIGRATION.md)** — Rebrand record — old→new identity map, old-brand update flow, residue removal, automatic output names, verification.
 
 ---
 ## 4. Agent Navigation & Entry Protocol
 1. **Entry Rule:** Always read [`SPEC_GOVERNANCE.md`](SPEC_GOVERNANCE.md) before performing any code generation or inspection.
-2. **Context Routing:** Know the FILE -> use §3 above. Know only a SYMBOL, CONSTANT or TAG (e.g. `SnapInsertionPoint`, `QuietBoostReductionFactor`, `ZOOMLIVE_07`) -> grep [`INDEX.md`](INDEX.md). Read the ONE spec you land on; do not pre-load the others.
+2. **Context Routing:** Know the FILE -> use §3 above. Know only a SYMBOL, CONSTANT or TAG (e.g. `SnapInsertionPoint`, `SafetyCeilingDbtp`, `ZOOMLIVE_07`) -> grep [`INDEX.md`](INDEX.md). Read the ONE spec you land on; do not pre-load the others.
 3. **Co-Governed Files (⚠):** A file listed under more than one spec is bound by ALL of them. Reading one is NOT compliance — this is the exact leakage `SPEC_GOVERNANCE.md` §2 exists to prevent.
 4. **Cite Anchors, Not Numbers:** Quote the stable `{#ANCHOR}` id (e.g. `FFM-BINPATH`) in the Proof-of-Read header. Section numbers shift as specs grow.
 5. **Land The Sentinel With The Fix:** Any bug fix or safety invariant guarded mechanically gets a `TAG=path` line in `build/sentinels.txt` in the SAME change (checked by `build/FvsVerify`, which `dev.cmd`'s `VERIFY_PATCHES` runs, and by `ArchitectureRuleTests.EveryFixSentinelStillResolves` in CI). Distinguish mechanical fix-sentinels (`build/sentinels.txt`) from spec section anchors (`docs/INDEX.md` `{#ANCHOR}` tags): mechanical sentinels fail compilation/verification if their in-code token is deleted, while spec anchors route architectural requirements. That section also states why a correct source file is not evidence that the running binary contains the fix.

@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using FreeVideoStudio.App.Infrastructure;
@@ -105,34 +108,6 @@ public partial class AudioFixPromptWindow : Window
     }
 
     /// <summary>
-    /// Builds the LOUDNESS warning — the recording is quieter or louder than viewers expect.
-    /// </summary>
-    public static AudioFixPromptWindow ForLoudness(LoudnessReading reading)
-    {
-        var win = new AudioFixPromptWindow();
-        bool quiet = reading.Verdict == LoudnessVerdict.TooQuiet;
-        string direction = quiet ? "lower" : "higher";
-        double off = Math.Abs(reading.GainToStandardDb);
-
-        win.Title = "Warning — Video Volume";
-        win.SetText(
-            title: "Warning — Video Volume",
-            message: $"The uploaded video contains {direction} volume than normal industry standards.",
-            question: quiet
-                ? "Would you like to normalize the audio so that it is industry standard volume?"
-                : "Would you like to normalize the audio so that it is industry standard volume?",
-            detail: $"Measured average loudness: {reading.IntegratedLufs:F1} LUFS. " +
-                    $"The standard used by YouTube, TikTok and Instagram is about {AudioLoudnessProbe.TargetLufs:F0} LUFS — " +
-                    $"your video is roughly {off:F1} dB {(quiet ? "quieter" : "louder")} than that.",
-            yesTip: quiet
-                ? "Makes the whole video louder so viewers do not have to turn their volume up."
-                : "Makes the whole video quieter so viewers do not have to turn their volume down.",
-            noTip: "Leaves the sound exactly as you recorded it.");
-
-        return win;
-    }
-
-    /// <summary>
     /// Builds the HARSH PEAK warning — the average is acceptable but there is a sudden bang.
     /// </summary>
     public static AudioFixPromptWindow ForHarshPeaks(LoudnessReading reading)
@@ -144,11 +119,11 @@ public partial class AudioFixPromptWindow : Window
             title: "Warning — Sudden Loud Moment",
             message: "The uploaded video contains a sudden moment that is far louder than the rest of it. " +
                      "On headphones this can genuinely hurt, because it arrives without warning.",
-            question: "Would you like to flatten that spike so it is no louder than the rest of the video?",
+            question: "Would you like to soften that spike so it no longer jumps far above the rest of the video?",
             detail: $"Loudest instant: {reading.TruePeakDbtp:F1} dBTP, which is about " +
                     $"{reading.PeakAboveAverageLu:F0} dB above this video's own average of {reading.IntegratedLufs:F1} LUFS.",
             yesTip: "Softens only the sudden loud moments. The rest of the video is left untouched.",
-            noTip: "Leaves the loud moment exactly as you recorded it.");
+            noTip: "Leaves the loud moment as you recorded it (the always-on safety limiter still stops it from clipping).");
 
         return win;
     }

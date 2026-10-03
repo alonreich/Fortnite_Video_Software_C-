@@ -8,6 +8,7 @@
 | :--- | :--- | :--- | :--- |
 | `src/FreeVideoStudio.Core/Infrastructure/RuntimePayloadManifest.cs` | `RuntimePayloadManifest` | `FromFolder`, `Read`, `Write`, `SYS-PAYLOADSPLIT` | Runtime fingerprint. |
 | `src/FreeVideoStudio.App/Services/UpdateService.cs` | `UpdateService` | `AppOnlyAssetName`, `RuntimeAlreadyMatchesAsync`, `SYS-PAYLOADSPLIT` | Which package to download. **⚠ CO-GOVERNED BY: 05** |
+| `build/FvsBuild/GitHubReleasePublisher.cs` | `GitHubReleasePublisher` | `Publish`, `ReleaseAssets`, `VerifyAssets`, `REBRAND_03` | Draft-verify-publish; creates the previous-brand download alias transiently. |
 | `build/FvsBuild/Staging.cs` | `Staging` | `CreatePayloadZip`, `SYS-PAYLOADSPLIT` | Writes the manifest before zipping the payload; produces the app-only archive and manifest in `obj\ReleaseAssets`. |
 | `.github/workflows/ci.yml` | CI | `SYS-CI`, `aot-publish` | Runs the ratchets; reports the app publish size. **⚠ CO-GOVERNED BY: 08** |
 | `.github/workflows/lfs-guard.yml` | LFS guard | `SYS-REPOWEIGHT` | Proves LFS is real and stops new large files. |
@@ -37,6 +38,7 @@
 | Scope | Canonical identity |
 | :--- | :--- |
 | Display name and Win32 product metadata | `Free Video Studio` |
+| Install, data and media folder names | `FreeVideoStudio` — never the spaced display name (`05` SYS-NOSPACE) |
 | Solution | `FreeVideoStudio.sln` |
 | App project | `src/FreeVideoStudio.App/FreeVideoStudio.App.csproj` |
 | App assembly / package ID / manifest identity | `FreeVideoStudio` |
@@ -50,7 +52,7 @@
 | App-only archive | `obj/ReleaseAssets/FreeVideoStudio.App.update.zip`, containing a signed compact installer named `FreeVideoStudio.exe` |
 | Runtime manifest | `runtime.manifest.json` inside the payload and under `obj/ReleaseAssets` |
 
-The internal tool names `FvsBuild` and `FvsVerify` are unchanged. The GitHub repository remains `alonreich/Fortnite_Video_Software_C-`; local project renames do not rename the hosted repository. Game-specific `Fortnite` crop profiles and recording-discovery folders remain gameplay identifiers, not product branding. Historical storage names are compatibility data in `LegacyAppDataNames.txt` (`05` SYS-REBRAND).
+The internal tool names `FvsBuild` and `FvsVerify` are unchanged. The GitHub repository is `alonreich/Free_Video_Studio`; GitHub redirects the previous repository address, so old clients still reach `releases/latest`. Game-specific crop profiles and recording-discovery folders remain gameplay identifiers, not product branding. Historical storage names are compatibility data in `LegacyAppDataNames.txt` (`05` SYS-REBRAND). The full old→new map and update flow are in `REBRAND_MIGRATION.md`.
 
 Run the local verification gates from the repository root:
 
@@ -60,10 +62,10 @@ dotnet build FreeVideoStudio.sln -c Release -warnaserror
 dotnet test tests/FreeVideoStudio.Core.Tests/FreeVideoStudio.Core.Tests.csproj
 dotnet test tests/FreeVideoStudio.App.Tests/FreeVideoStudio.App.Tests.csproj
 dotnet run --project build/FvsVerify/FvsVerify.csproj -v q
-git grep -i "FortniteVideoSoftware" -- "*.cs" "*.axaml" "*.csproj" "*.sln" "*.manifest"
+dotnet test tests/FreeVideoStudio.Core.Tests/FreeVideoStudio.Core.Tests.csproj --filter RebrandTests
 ```
 
-The last command should return no matches (Git exit code 1 means no matches). The embedded legacy-name text resource is intentionally outside this source-identity scan. Project GUIDs stay unchanged; solution paths, project references, source-generated serializer types, XAML namespaces and sentinel paths use the renamed projects. `ProductionNamespacesUseTheProductRoot` enforces production namespace declarations; `AppDataPathsTests` guards migration behavior. Build output must contain only the standalone executable, with release sidecars under `obj/ReleaseAssets`.
+`RebrandTests.PreviousBrandNameAppearsOnlyInTheMigrationAllowList` fails if the previous product name appears outside `LegacyAppDataNames.txt` and `REBRAND_MIGRATION.md`. Project GUIDs stay unchanged; solution paths, project references, source-generated serializer types, XAML namespaces and sentinel paths use the renamed projects. `ProductionNamespacesUseTheProductRoot` enforces production namespace declarations; `AppDataPathsTests` guards migration behavior. Build output must contain only the standalone executable, with release sidecars under `obj/ReleaseAssets`.
 
 ---
 
@@ -75,7 +77,7 @@ Numbers taken on 2026-09-21, against `arch/04-mvvm`:
 | :--- | ---: | :--- |
 | `compiled/FreeVideoStudio.exe` | **322 MB** | what a user downloads to install |
 | `binaries/` (FFmpeg + libmpv) | 368 MB | of which `avcodec-62.dll` alone is 97 MB |
-| `mp3/` + `mp4/` + `jpeg/` in the repo | 269 MB | starter media, committed |
+| `mp3/` + `meme/` in the repo (`meme/` replaced `mp4/` + `jpeg/`, MEMEFOLDER_01) | 269 MB | starter media, committed |
 | `.git` | **2.7 GB** | a fresh clone |
 
 Two separate defects hide in that table, and they need separate fixes.
@@ -155,9 +157,11 @@ recurs: the *repeat* download.
   the full payload; publish/sign the full installer; replace the embedded payload with the app
   and manifests only; publish/sign the compact installer; archive it; restore the full payload.
   Both installers use the same source and transactional worker. `compiled` still contains only
-  the full standalone executable; sidecars and the legacy filename alias live in `obj/ReleaseAssets`.
-* **Old updater bridge.** The legacy executable filename, taken from `LegacyProductIdentity`,
-  remains a release asset containing identical bytes to the full installer. This lets old
+  the full standalone executable; sidecars live in `obj/ReleaseAssets`. The legacy filename alias is
+  never staged (REBRAND_03): `Staging` deletes any stale copy, and `GitHubReleasePublisher` creates it in
+  a private temp folder for the upload only and deletes it afterwards.
+* **Old updater bridge (REBRAND_03).** The legacy executable filename, taken from `LegacyProductIdentity`,
+  remains a release asset containing identical bytes to the full installer (created transiently at publish time). This lets old
   clients discover the rebrand without maintaining a separate app. Do not remove this alias
   until dropping automatic migration from those released clients is an explicit product decision.
 * **Publication transaction.** Upload all four assets to a draft, verify every asset by name and
@@ -176,7 +180,7 @@ recurs: the *repeat* download.
   rewrite cannot stop the next large file, and this can.
 
 * **The 2.7 GB is history, and history is the user's decision.** The media in `mp3/`, `mp4/` and
-  `jpeg/` was committed before LFS was configured, so the blobs are in every clone forever. Fixing
+  `jpeg/` (now merged into `meme/`, MEMEFOLDER_01) was committed before LFS was configured, so the blobs are in every clone forever. Fixing
   it means rewriting history, which changes every commit hash and breaks every existing clone,
   fork, branch and open PR.
 
@@ -184,13 +188,12 @@ recurs: the *repeat* download.
 
   1. Everyone pushes and merges outstanding work. A rewrite orphans anything not on the remote.
   2. `git clone --mirror` the repository and keep that copy untouched until the new one is proven.
-  3. `git filter-repo --path mp3/ --path mp4/ --path jpeg/ --path binaries/ --invert-paths`
+  3. `git filter-repo --path mp3/ --path mp4/ --path jpeg/ --path meme/ --path binaries/ --invert-paths`
      (`filter-repo`, not `filter-branch` — the latter is slow and its author recommends against it).
   4. Re-add the media through LFS in a single fresh commit, or move it to release assets — the
      starter media is shipped in `payload.zip` and does not need to be in the source tree at all.
-     ⚠ `.gitattributes` has LFS rules for `*.mp3`/`*.mp4` but **none for `*.jpg`, `*.jpeg` or `*.png`**,
-     so `jpeg/` would be re-added as ordinary Git blobs (and `lfs-guard.yml` only catches files over
-     5 MB). Add those rules first if the images are to go through LFS.
+     `.gitattributes` now routes `meme/*.png`, `meme/*.jpg` and `meme/*.jpeg` through LFS as well
+     (MEMEFOLDER_01); images elsewhere in the tree are deliberately not affected.
   5. `git push --force --all` and `--tags`, then everyone re-clones. Not "pulls" — **re-clones**.
 
   ⚠️ Expected result is a repository in the low hundreds of MB. ⚠️ Expected cost is that every

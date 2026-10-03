@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
@@ -154,7 +157,7 @@ public static class CoachOverlay
         catch (Exception ex)
         {
             SafeLog($"Register failed for '{screenKey}': {ex.Message}");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -170,7 +173,7 @@ public static class CoachOverlay
         catch (Exception ex)
         {
             SafeLog($"Replay failed: {ex.Message}");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -196,7 +199,7 @@ public static class CoachOverlay
         catch (Exception ex)
         {
             SafeLog($"PlayOnce failed: {ex.Message}");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -207,7 +210,7 @@ public static class CoachOverlay
         catch (Exception ex)
         {
             SafeLog($"Cancel failed: {ex.Message}");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -449,6 +452,9 @@ public static class CoachOverlay
                 CentreCard(s, ow, oh);
             }
 
+            // GUIDE_01 — an ad-hoc PlayOnce tour has NO screen key and must never touch a counter.
+            // Without this guard it would write a stray "coach_.txt" and, worse, SKIP on it would
+            // burn a counter that belongs to no screen.
             if (!s.ShownAtLeastOneStep && !string.IsNullOrWhiteSpace(s.ScreenKey))
             {
                 s.ShownAtLeastOneStep = true;
@@ -460,7 +466,7 @@ public static class CoachOverlay
         {
             SafeLog($"Walkthrough tick failed, closing it: {ex.Message}");
             Finish(window, markSeen: false);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -642,20 +648,21 @@ public static class CoachOverlay
                 catch (Exception ex)
                 {
                     SafeLog($"Could not detach walkthrough key handler: {ex.Message}");
-                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+                    global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
                 }
                 s.KeyHandler = null;
             }
 
             s.Root.Children.Remove(s.Overlay);
 
+            // GUIDE_01 — see the tick guard: keyless ad-hoc tours own no counter.
             if (markSeen && !string.IsNullOrWhiteSpace(s.ScreenKey))
                 UiStateStore.WriteInt(CounterFile(s.ScreenKey), int.MaxValue / 2);
         }
         catch (Exception ex)
         {
             SafeLog($"Finish failed: {ex.Message}");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
         }
     }
 
@@ -669,7 +676,7 @@ public static class CoachOverlay
         try { RuntimeLog.Info("COACH", message); }
         catch (Exception swallowed)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
     }
 }

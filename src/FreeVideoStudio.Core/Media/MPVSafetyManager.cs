@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Diagnostics;
 using System.Threading.Channels;
 using System.Globalization;
@@ -82,6 +85,9 @@ public class MPVSafetyManager : IDisposable
         _mpvHandle = mpvHandle;
         _handleValid = mpvHandle != nint.Zero;
 
+        // MPVSAFETY_01 — capacity 1 + DropOldest IS the coalescing policy this class exists for:
+        // during a scrub burst only the NEWEST target survives. Do not widen the buffer and do not
+        // switch to DropWrite; either one reinstates the seek storm.
         _seekChannel = Channel.CreateBounded<double>(new BoundedChannelOptions(1)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -116,17 +122,9 @@ public class MPVSafetyManager : IDisposable
         _seekChannel.Writer.TryWrite(timeSeconds);
     }
 
-    /// <summary>
-    /// MPVSAFETY_01 — the handle owner calls this BEFORE destroying the mpv handle, so an in-flight
-    /// seek can never command through a freed pointer. <see cref="Dispose"/> calls it too; calling
-    /// both, in either order, is safe.
-    /// </summary>
-    public void InvalidateHandle()
-    {
-        _handleValid = false;
-        _mpvHandle = nint.Zero;
-    }
-
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // SEEK PROCESSOR
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// MPVSAFETY_01 — the thread body. It exists so the loop can be <c>async Task</c> instead of
@@ -143,15 +141,15 @@ public class MPVSafetyManager : IDisposable
         }
         catch (OperationCanceledException swallowed3)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
         catch (ObjectDisposedException swallowed)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
         }
         catch (ChannelClosedException swallowed4)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -174,6 +172,9 @@ public class MPVSafetyManager : IDisposable
         {
             if (token.IsCancellationRequested) break;
 
+            // MPVSAFETY_01 — the 50 ms floor between ISSUED seeks. Tuned constant; the burst that
+            // arrives during the wait is coalesced by the capacity-1 DropOldest channel above, so
+            // the target read on the next iteration is always the newest one.
             long elapsedMs = debounceTimer.ElapsedMilliseconds;
             if (elapsedMs < SeekDebounceMs)
             {
@@ -222,6 +223,9 @@ public class MPVSafetyManager : IDisposable
         MpvWrapper.mpv_command_string(handle, $"seek {pct} absolute-percent");
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // WATCHDOG
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// MPVSAFETY_01 — trips when a seek has been outstanding past <see cref="StuckSeekSeconds"/>.
@@ -235,6 +239,8 @@ public class MPVSafetyManager : IDisposable
     {
         try
         {
+            // MPVSAFETY_01 — Wait returns true the moment teardown signals, so Dispose never waits
+            // out a poll interval. This replaces the old unconditional Thread.Sleep(500).
             while (!_stopSignal.Wait(WatchdogPollMs))
             {
                 bool stuck = false;
@@ -260,7 +266,7 @@ public class MPVSafetyManager : IDisposable
         }
         catch (ObjectDisposedException swallowed2)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -272,6 +278,9 @@ public class MPVSafetyManager : IDisposable
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // TEARDOWN
+    // ══════════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// MPVSAFETY_01 — idempotent, never throws, and NEVER frees the token source while a consumer
@@ -281,13 +290,17 @@ public class MPVSafetyManager : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
+        // 1. No more native commands, whatever else happens below.
         _handleValid = false;
 
+        // 2. Stop producing. TryWrite becomes a no-op and ReadAllAsync will end its enumeration.
         try { _seekChannel.Writer.TryComplete(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
 
+        // 3. Signal both consumers.
         try { _stopSignal.Set(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
         try { _cts.Cancel(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
 
+        // 4. WAIT for them to actually finish. Bounded — a wedged consumer must not hang shutdown.
         bool seekStopped = JoinBounded(_seekThread, "MPV_Seek_Processor");
         bool watchdogStopped = JoinBounded(_watchdogThread, "MPV_Safety_Watchdog");
 
@@ -296,6 +309,9 @@ public class MPVSafetyManager : IDisposable
 
         if (!seekAccountedFor || !watchdogAccountedFor)
         {
+            // Same precedent as MpvIpcClient: abandon rather than free something a live thread is
+            // still reading. The token source and the event leak for the life of the process; that
+            // is strictly better than an ObjectDisposedException on a thread with no handler.
             CoreLogger.Fail("MPV",
                 "An MPVSafetyManager consumer did not stop in time — abandoning its synchronisation " +
                 "objects instead of freeing them underneath a live thread.");
@@ -303,6 +319,7 @@ public class MPVSafetyManager : IDisposable
             return;
         }
 
+        // 5. Only now is nothing still using these.
         try { _cts.Dispose(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
         try { _stopSignal.Dispose(); } catch (Exception ex) { CoreLogger.Swallowed(ex); }
 

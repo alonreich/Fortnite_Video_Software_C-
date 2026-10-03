@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.IO;
 using System.Threading;
@@ -88,8 +91,11 @@ public static class DiagnosticBundle
 
                 report.AddLogTail(RuntimeLog.LogPath);
 
+                // The recovery state names what the app believed it was doing when it died, which
+                // is the one thing a log tail can miss entirely — a hard crash writes no epitaph.
                 report.Add("SESSION", DescribeSession(paths));
 
+                // LOGVIS_01 — every classified failure this session, by tier and area.
                 report.Add("FAULTS", FaultCounters.Describe());
 
                 string folder = FolderFor(paths);
@@ -120,7 +126,10 @@ public static class DiagnosticBundle
         }
         catch (Exception ex)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);
+            // Reported as text inside the bundle rather than as a fault: the bundle IS the error
+            // channel here, and a fault raised while building one is how a reporter becomes a
+            // source of faults (FAULTTIER_01 on UserFacingFaultSink).
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(ex);   // FAULTTIER_02 — no failure is silent.
             return $"(session state unavailable: {ex.GetType().Name} — {ex.Message})";
         }
     }

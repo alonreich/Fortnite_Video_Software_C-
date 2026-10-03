@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -94,6 +97,9 @@ internal sealed class MemeDimensionCache
                 !verVal.TryGetValue<int>(out int version) ||
                 version != SchemaVersion)
             {
+                // A different schema is discarded wholesale. This is a cache; re-probing is the
+                // correct and cheap recovery, and a partial migration risks a stale dimension
+                // reaching the export-crash guard.
                 return cache;
             }
 
@@ -105,7 +111,7 @@ internal sealed class MemeDimensionCache
 
                 int w = ReadInt(e, "w");
                 int h = ReadInt(e, "h");
-                if (w <= 0 || h <= 0) continue;
+                if (w <= 0 || h <= 0) continue;   // never resurrect a failed probe
 
                 cache._entries[kv.Key] = new Entry
                 {
@@ -182,6 +188,9 @@ internal sealed class MemeDimensionCache
                 snapshot = new List<KeyValuePair<string, Entry>>(_entries);
             }
 
+            // Pruning stats up to MaxEntries files. That is disk I/O and it is deliberately done
+            // OUTSIDE the lock — TryGet is called from the scan's hot loop and must never queue
+            // behind a few thousand File.Exists calls.
             var gone = new List<string>();
             for (int i = snapshot.Count - 1; i >= 0; i--)
             {
@@ -233,6 +242,7 @@ internal sealed class MemeDimensionCache
         }
         catch (Exception ex)
         {
+            // A cache that cannot be written is a slower scan, never a failed one.
             RuntimeLog.Swallowed(ex);
         }
     }

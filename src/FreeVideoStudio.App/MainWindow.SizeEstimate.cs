@@ -1,4 +1,7 @@
-﻿using Avalonia.Controls;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using Avalonia.Controls;
 using Avalonia.Threading;
 using FreeVideoStudio.App.Services;
 using FreeVideoStudio.App.ViewModels;
@@ -48,6 +51,7 @@ public partial class MainWindow
     {
         if (_mainSizeWorker == null) return;
         var request = CaptureSizeRequest();
+        // SIZEESTIMATE_01 — recovery also saves on scrubbing/volume. Ignore unchanged export inputs.
         if (_lastSizeRequest is { } previous &&
             (previous with { Segments = request.Segments, Cuts = request.Cuts, Memes = request.Memes }) == request &&
             previous.Segments.SequenceEqual(request.Segments) && previous.Cuts.SequenceEqual(request.Cuts) &&

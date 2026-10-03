@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -44,12 +47,13 @@ public static class MemeManagementService
             var tb = new TextBlock { Text = item.FileName, VerticalAlignment = VerticalAlignment.Center };
             if (item.IsDownloadAction)
             {
-                tb.Text = item.DownloadCategory == "jpeg"
+                bool pictures = item.DownloadCategory == MemeCategory.Image;   // MEMECAT_01
+                tb.Text = pictures
                     ? "⬇  Download more meme PICTURES…"
                     : "⬇  Download more meme VIDEOS…";
                 tb.FontWeight = FontWeight.Bold;
                 tb.Foreground = new SolidColorBrush(Color.Parse("#38bdf8"));
-                ToolTip.SetTip(tb, item.DownloadCategory == "jpeg"
+                ToolTip.SetTip(tb, pictures
                     ? "Fetch more still-image memes from the official library. Files you already have are skipped, never overwritten."
                     : "Fetch more video memes from the official library. Files you already have are skipped, never overwritten.");
             }
@@ -62,10 +66,15 @@ public static class MemeManagementService
         });
     }
 
-    public static async Task<(int Count, string? Error)> DownloadCloudMemesAsync(Window parent, string category)
+    /// <summary>
+    /// DOWNLOAD_01 — confirm, then fetch one category from the single `meme/` library folder
+    /// (MEMEFOLDER_01). Shared by the main-screen combo rows and the meme picker (MEMEPICK_01).
+    /// On a successful download every open meme list is told to re-scan through
+    /// <see cref="MemeDirectory.NotifyChanged"/>, so the main combo and the picker never disagree.
+    /// </summary>
+    public static async Task<(int Count, string? Error)> DownloadCloudMemesAsync(Window parent, MemeCategory category)
     {
-        bool pictures = string.Equals(category, "jpeg", StringComparison.OrdinalIgnoreCase);
-        string label = pictures ? "meme pictures" : "meme videos";
+        string label = MemeCatalog.LabelFor(category);
 
         var dlg = new ConfirmDialogWindow();
         dlg.SetTitle($"Download more {label}?");
@@ -78,11 +87,11 @@ public static class MemeManagementService
         if (!dlg.Result) return (0, null);
 
         string memeDir = MemeDirectory.GetActive();
-        return await CloudSyncProgressWindow.RunAsync(
+        var result = await CloudSyncProgressWindow.RunAsync(
             parent, $"Downloading {label}",
-            (progress, ct) => pictures
-                ? MemeCatalog.SyncImageMemesAsync(memeDir, progress, ct)
-                : MemeCatalog.SyncVideoMemesAsync(memeDir, progress, ct));
+            (progress, ct) => MemeCatalog.SyncMemesAsync(memeDir, category, progress, ct));
+        if (result.Item1 > 0) MemeDirectory.NotifyChanged();
+        return result;
     }
 
     public static async Task<double> ProbeMusicDurationSecondsAsync(string ffmpegPath, string musicPath)

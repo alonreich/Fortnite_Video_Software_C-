@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -7,42 +10,24 @@ using FreeVideoStudio.Core.Infrastructure;
 namespace FreeVideoStudio.Core.Media;
 
 /// <summary>
-/// How a source file's audio compares to the broadcast/streaming loudness standard.
+/// One loudness measurement of a source file, in the units FFmpeg's <c>loudnorm</c> analysis
+/// reports them.
+///
+/// LOUDSTD_REMOVED_01 — there is NO loudness standard in this app any more. The old
+/// "too quiet / too loud versus -14 LUFS" verdict, its prompt, its setting and the dead
+/// normalisation pipeline behind it were deleted. A reading exists for exactly three consumers:
+/// harsh-peak detection (<see cref="HasHarshPeaks"/>), the peak tamer's threshold
+/// (<see cref="PeakSafety.TamerThresholdDb"/>), and matching a meme / a Merger clip to the
+/// gameplay it sits in (<see cref="MemeLoudness"/>). None of them moves the gameplay level.
 /// </summary>
-public enum LoudnessVerdict
-{
-    /// <summary>Inside the accepted band — nothing to warn about.</summary>
-    WithinStandard,
-    /// <summary>Quieter than standard; viewers would have to turn the volume up.</summary>
-    TooQuiet,
-    /// <summary>Louder than standard; viewers would have to turn the volume down.</summary>
-    TooLoud,
-    /// <summary>The file has no audio track, or measurement failed.</summary>
-    Unknown
-}
-
-/// <summary>
-/// One complete loudness measurement of a source file, in the units FFmpeg's
-/// <c>loudnorm</c> filter reports them.
-/// </summary>
-/// <param name="IntegratedLufs">Average perceived loudness over the whole file (LUFS).</param>
-/// <param name="TruePeakDbtp">Highest true peak sample (dBTP). Above 0 clips.</param>
+/// <param name="IntegratedLufs">Average perceived loudness over the measured window (LUFS).</param>
+/// <param name="TruePeakDbtp">Highest true peak (dBTP). Above 0 clips.</param>
 /// <param name="LoudnessRangeLu">Spread between the quiet and loud parts (LU).</param>
-/// <param name="ThresholdDb">loudnorm's gating threshold — needed for the second pass.</param>
-/// <param name="TargetOffsetDb">loudnorm's own suggested offset — needed for the second pass.</param>
 public sealed record LoudnessReading(
     double IntegratedLufs,
     double TruePeakDbtp,
-    double LoudnessRangeLu,
-    double ThresholdDb,
-    double TargetOffsetDb)
+    double LoudnessRangeLu)
 {
-    /// <summary>
-    /// How far this file sits from the target, in LU. Positive = too quiet (needs a boost),
-    /// negative = too loud (needs a cut). This is exactly the gain normalisation would apply.
-    /// </summary>
-    public double GainToStandardDb => AudioLoudnessProbe.TargetLufs - IntegratedLufs;
-
     /// <summary>
     /// Crest factor: how far the loudest instant sticks out above the average body of the
     /// audio. A conversational clip sits near 10-14 LU; a gameplay capture with an explosion
@@ -50,91 +35,26 @@ public sealed record LoudnessReading(
     /// </summary>
     public double PeakAboveAverageLu => TruePeakDbtp - IntegratedLufs;
 
-    public LoudnessVerdict Verdict
-    {
-        get
-        {
-            double delta = IntegratedLufs - AudioLoudnessProbe.TargetLufs;
-            if (delta < -AudioLoudnessProbe.ToleranceLu) return LoudnessVerdict.TooQuiet;
-            if (delta > AudioLoudnessProbe.ToleranceLu) return LoudnessVerdict.TooLoud;
-            return LoudnessVerdict.WithinStandard;
-        }
-    }
-
     /// <summary>
     /// True when the file contains sudden peaks far above its own average AND those peaks
-    /// actually reach the danger zone. Both conditions matter: a uniformly loud file is a
-    /// <see cref="LoudnessVerdict.TooLoud"/> problem (fixed by normalising), whereas THIS is
-    /// the "quiet video, then an explosion takes your head off" problem (fixed by limiting).
+    /// actually reach the danger zone — the "quiet video, then an explosion takes your head off"
+    /// problem, which the peak tamer fixes.
     /// </summary>
     public bool HasHarshPeaks =>
         PeakAboveAverageLu > AudioLoudnessProbe.CrestWarnLu &&
-        TruePeakDbtp > AudioLoudnessProbe.PeakCeilingDbtp;
+        TruePeakDbtp > AudioLoudnessProbe.HarshPeakFloorDbtp;
 }
 
 /// <summary>
-/// Measures a media file's real loudness so the app can tell the user — BEFORE they spend time
-/// editing — that their capture is quieter or louder than viewers expect, or that it hides a
-/// sudden peak that would startle an audience.
-///
-/// This is the same measurement FFmpeg's two-pass <c>loudnorm</c> uses, so a reading taken here
-/// can be handed straight to the export's second pass without measuring twice.
+/// Measures a media file's loudness and peaks (EBU R128, via FFmpeg's <c>loudnorm</c> in pure
+/// analysis mode — its output is discarded into the null muxer, nothing is ever normalised).
 /// </summary>
 public static class AudioLoudnessProbe
 {
     /// <summary>
-    /// The streaming/broadcast loudness target. YouTube, Spotify and Apple Music all normalise
-    /// playback to approximately this level, so a file mastered here is what listeners expect.
+    /// A true peak above this counts towards <see cref="LoudnessReading.HasHarshPeaks"/>.
     /// </summary>
-    public const double TargetLufs = -14.0;
-
-    /// <summary>
-    /// True-peak ceiling. -1.5 dBTP leaves headroom so lossy re-encoding downstream (which can
-    /// overshoot by a fraction of a dB) still cannot clip.
-    /// </summary>
-    public const double PeakCeilingDbtp = -1.5;
-
-    /// <summary>
-    /// QUIETBOOST_01 — HOW MUCH OF THE MEASURED LIFT A QUIET CAPTURE ACTUALLY RECEIVES.
-    ///
-    /// A capture well under <see cref="TargetLufs"/> asks for a large positive gain, and taking
-    /// it in full is technically correct but sounded far too loud: at -14 LUFS a gameplay clip
-    /// is as loud as a mastered record, and its noise floor and room tone come up with it.
-    /// Owner's decision: keep only 30% of the lift, i.e. reduce it by this factor.
-    ///
-    /// ⚠️ THIS ONLY EVER REDUCES A BOOST. A capture ALREADY LOUDER than the target is still
-    /// pulled all the way down — that direction is a ceiling, not a preference, and softening it
-    /// would ship files above the platform target that every platform then turns down anyway.
-    ///
-    /// ⚠️ IT IS APPLIED TO THE FINISHED MIX, NOT THE GAME BUS. Music sits at an ABSOLUTE
-    /// <see cref="MusicBedLufs"/> and the voice-over at an absolute target, so trimming the bus
-    /// alone would leave both of them where they were and make them relatively LOUDER by exactly
-    /// this amount. Trimming the sum moves everything together and the mix balance is untouched.
-    /// </summary>
-    public const double QuietBoostReductionFactor = 0.70;
-
-    /// <summary>
-    /// AUDIO_03 — where BACKGROUND MUSIC should sit, in LUFS.
-    ///
-    /// ⚠️ THIS EXISTS BECAUSE MUSIC WAS NEVER MEASURED AT ALL. Gameplay is normalised to
-    /// <see cref="TargetLufs"/>, but a music file went in exactly as its label mastered it — and
-    /// commercial masters are LOUD, typically -8 to -10 LUFS. So with both sliders at 1.0, which
-    /// the user reasonably reads as "equal", the music actually arrived roughly 5 dB HOTTER than
-    /// the gameplay before ducking or carving got a chance to act. Every ducking parameter in the
-    /// chain was then being tuned to claw back a head start it should never have had.
-    ///
-    /// -14 LUFS puts music perfectly equal to the game bus, which is what the user expects when
-    /// setting the slider to 100%. A 50% slider setting will then correctly attenuate it by 6 dB
-    /// to -20 LUFS for the typical background bed level.
-    /// </summary>
-    public const double MusicBedLufs = TargetLufs;
-
-    /// <summary>
-    /// Safety rail for the music match. A very quiet or badly-tagged file could otherwise ask for
-    /// a huge boost that turns its noise floor into a hiss bed, so the correction is clamped.
-    /// </summary>
-    public const double MaxMusicGainDb = 12.0;
-    public const double MinMusicGainDb = -24.0;
+    public const double HarshPeakFloorDbtp = -1.5;
 
     /// <summary>
     /// BEDSEG_01 — the shortest window worth measuring on its own.
@@ -142,19 +62,10 @@ public static class AudioLoudnessProbe
     /// EBU R128 integrated loudness gates in 400 ms blocks and then applies a relative gate across
     /// them; with only a second or two of material the relative gate has almost nothing to work on
     /// and loudnorm reports a figure that swings wildly or comes back as -70 (silence). Anything
-    /// shorter than this falls back to measuring the whole file, which is what the code did before
-    /// segment measurement existed — a known-imperfect answer beats a random one.
+    /// shorter than this falls back to measuring the whole file — a known-imperfect answer beats a
+    /// random one.
     /// </summary>
     public const double MinSegmentSec = 5.0;
-
-    /// <summary>
-    /// How far from <see cref="TargetLufs"/> a file may sit before the user is warned.
-    ///
-    /// Chosen deliberately: at +/-1 LU almost every gameplay capture trips the warning and the
-    /// dialog becomes noise the user dismisses reflexively; at +/-6 LU a genuinely quiet -19 LUFS
-    /// clip passes unflagged. +/-3 LU flags what a listener would actually notice.
-    /// </summary>
-    public const double ToleranceLu = 3.0;
 
     /// <summary>
     /// Crest factor above which peaks count as "harsh". Speech and music normally land around
@@ -169,7 +80,7 @@ public static class AudioLoudnessProbe
     /// silent for a minute and then deafening averages out to something neither half resembles —
     /// so this decodes the entire window rather than sampling within it. By default that window is
     /// the whole file; BEDSEG_01 added the option to narrow it to the part that will actually be
-    /// used, which is what makes a music bed comparable to a trimmed game bus.
+    /// used (the exported range of a clip).
     /// Video, subtitles and data streams are dropped
     /// (<c>-vn -sn -dn</c>) so only the audio is touched, which keeps it fast enough to run in
     /// the background while the user is already working.
@@ -194,6 +105,45 @@ public static class AudioLoudnessProbe
     {
         if (string.IsNullOrWhiteSpace(inputPath) || !File.Exists(inputPath)) return null;
 
+        // PREVIEWMIX_01 — the live preview re-renders the mix after every edit, and each render
+        // would otherwise re-measure the same gameplay window and the same memes. Readings are
+        // cached per (file, size, write time, window); a changed file is a new key.
+        string cacheKey;
+        try
+        {
+            var fi = new FileInfo(inputPath);
+            cacheKey = string.Create(CultureInfo.InvariantCulture,
+                $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{segmentStartSec:F3}|{segmentDurationSec:F3}");
+            lock (Cache) { if (Cache.TryGetValue(cacheKey, out var hit)) return hit; }
+        }
+        catch (Exception ex) { CoreLogger.Swallowed(ex); cacheKey = ""; }
+
+        var measured = await MeasureUncachedAsync(ffmpegPath, inputPath, cancellationToken, segmentStartSec, segmentDurationSec).ConfigureAwait(false);
+        if (measured != null && cacheKey.Length > 0)
+        {
+            lock (Cache)
+            {
+                if (Cache.Count >= 64) Cache.Clear();
+                Cache[cacheKey] = measured;
+            }
+        }
+        return measured;
+    }
+
+    private static readonly Dictionary<string, LoudnessReading> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    private static async Task<LoudnessReading?> MeasureUncachedAsync(
+        string ffmpegPath,
+        string inputPath,
+        CancellationToken cancellationToken,
+        double segmentStartSec,
+        double segmentDurationSec)
+    {
+
+        // BEDSEG_01 — MEASURE THE MATERIAL THAT WILL ACTUALLY BE HEARD: the exported range of the
+        // gameplay, or the kept window of a Merger clip. A window is only used when it is long
+        // enough for EBU R128 integrated loudness to mean anything; below MinSegmentSec the gating
+        // leaves too little material, so the whole file is measured instead.
         bool useSegment = segmentDurationSec >= MinSegmentSec && segmentStartSec >= 0;
 
         Process? process = null;
@@ -206,6 +156,7 @@ public static class AudioLoudnessProbe
 
             if (useSegment)
             {
+                // Before -i, so the decoder seeks instead of decoding and discarding.
                 args.Add("-ss");
                 args.Add(segmentStartSec.ToString("F3", CultureInfo.InvariantCulture));
                 args.Add("-t");
@@ -215,9 +166,9 @@ public static class AudioLoudnessProbe
             args.AddRange(new[]
             {
                 "-i", inputPath,
-                "-af", $"loudnorm=I={TargetLufs.ToString(CultureInfo.InvariantCulture)}" +
-                       $":TP={PeakCeilingDbtp.ToString(CultureInfo.InvariantCulture)}" +
-                       ":LRA=11:print_format=json",
+                // Analysis only: the targets are loudnorm's defaults and irrelevant — input_* are
+                // properties of the SOURCE, and the processed audio goes to the null muxer.
+                "-af", "loudnorm=print_format=json",
                 "-vn", "-sn", "-dn",
                 "-f", "null", "-"
             });
@@ -263,7 +214,7 @@ public static class AudioLoudnessProbe
             CoreLogger.Info("LoudnessProbe",
                 $"'{Path.GetFileName(inputPath)}': I={reading.IntegratedLufs:F2} LUFS, " +
                 $"TP={reading.TruePeakDbtp:F2} dBTP, LRA={reading.LoudnessRangeLu:F2} LU " +
-                $"({reading.Verdict}, peak {reading.PeakAboveAverageLu:F1} LU above average).");
+                $"(peak {reading.PeakAboveAverageLu:F1} LU above average{(reading.HasHarshPeaks ? ", HARSH PEAKS" : "")}).");
 
             return reading;
         }
@@ -303,16 +254,14 @@ public static class AudioLoudnessProbe
             if (!TryReadDouble(node, "input_i", out double i)) return null;
             if (!TryReadDouble(node, "input_tp", out double tp)) return null;
             if (!TryReadDouble(node, "input_lra", out double lra)) return null;
-            if (!TryReadDouble(node, "input_thresh", out double thresh)) return null;
-            if (!TryReadDouble(node, "target_offset", out double offset)) offset = 0.0;
 
             if (double.IsInfinity(i) || double.IsNaN(i)) return null;
 
-            return new LoudnessReading(i, tp, lra, thresh, offset);
+            return new LoudnessReading(i, tp, lra);
         }
         catch (System.Exception swallowed)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return null;
         }
     }
@@ -328,7 +277,7 @@ public static class AudioLoudnessProbe
         }
         catch (System.Exception swallowed2)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
     }

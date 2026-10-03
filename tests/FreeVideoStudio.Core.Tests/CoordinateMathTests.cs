@@ -6,6 +6,9 @@ namespace FreeVideoStudio.Core.Tests;
 
 public class CoordinateMathTests
 {
+    // =========================================================================
+    // 1. Frac Rational Arithmetic Tests
+    // =========================================================================
 
     [Fact]
     public void Frac_ConstructAndNormalize_SimplifiesCorrectly()
@@ -126,6 +129,9 @@ public class CoordinateMathTests
         Assert.Equal(0.75, f2.ToDouble());
     }
 
+    // =========================================================================
+    // 2. Rounding and Parity Utilities
+    // =========================================================================
 
     [Theory]
     [InlineData(0, 0)]
@@ -179,12 +185,15 @@ public class CoordinateMathTests
     [Fact]
     public void ScaleRound_HalfUpSymmetricRounding()
     {
-        Assert.Equal(2, CoordinateMath.ScaleRound(new Frac(3, 2)));
-        Assert.Equal(1, CoordinateMath.ScaleRound(new Frac(14, 10)));
-        Assert.Equal(-2, CoordinateMath.ScaleRound(new Frac(-3, 2)));
-        Assert.Equal(-1, CoordinateMath.ScaleRound(new Frac(-14, 10)));
+        Assert.Equal(2, CoordinateMath.ScaleRound(new Frac(3, 2))); // 1.5 -> 2
+        Assert.Equal(1, CoordinateMath.ScaleRound(new Frac(14, 10))); // 1.4 -> 1
+        Assert.Equal(-2, CoordinateMath.ScaleRound(new Frac(-3, 2))); // -1.5 -> -2
+        Assert.Equal(-1, CoordinateMath.ScaleRound(new Frac(-14, 10))); // -1.4 -> -1
     }
 
+    // =========================================================================
+    // 3. Resolution Parsing
+    // =========================================================================
 
     [Theory]
     [InlineData("1920x1080", 1920, 1080)]
@@ -215,6 +224,9 @@ public class CoordinateMathTests
         Assert.Equal(1080, h);
     }
 
+    // =========================================================================
+    // 4. ScalePlan Across Aspect Ratios
+    // =========================================================================
 
     [Fact]
     public void ScalePlan_1080p_ScalesToCover1280x1920()
@@ -278,6 +290,9 @@ public class CoordinateMathTests
         Assert.Equal(0, plan.cropY);
     }
 
+    // =========================================================================
+    // 5. HUD dimensions stay even for export and preserve the source aspect ratio.
+    // =========================================================================
 
     [Theory]
     [InlineData(64, 64, 1, 1)]
@@ -315,24 +330,32 @@ public class CoordinateMathTests
         Assert.InRange(Math.Abs(height - rh / backendScale), 0, 0.500001);
     }
 
+    // =========================================================================
+    // 6. SnapZoomWindow, ZoomPadMargin & SnapExtent
+    // =========================================================================
 
     [Fact]
     public void ZoomPadMargin_MeetsMinimumFormulaAndEvenAlignment()
     {
         double margin100 = CoordinateMath.ZoomPadMargin(100);
+        // needed = 100/2 + 2 = 52 -> EvenDim(52) = 52
         Assert.Equal(52.0, margin100);
 
         double margin101 = CoordinateMath.ZoomPadMargin(101);
+        // needed = 101/2 + 2 = 52.5 -> ceil = 53 -> EvenDim(53) = 52
         Assert.True(margin101 % 2 == 0);
     }
 
     [Fact]
     public void SnapExtent_ParityMatchesWindowCentre()
     {
+        // centre = 1255 (odd)
+        // raw = 359.1111
         int snappedOdd = CoordinateMath.SnapExtent(359.1111, 1255);
         Assert.Equal(0, snappedOdd % 2);
-        Assert.Equal(0, (1255 - snappedOdd / 2) % 2);
+        Assert.Equal(0, (1255 - snappedOdd / 2) % 2); // Parity check: centre - extent / 2 is even
 
+        // centre = 1256 (even)
         int snappedEven = CoordinateMath.SnapExtent(359.1111, 1256);
         Assert.Equal(0, snappedEven % 2);
         Assert.Equal(0, (1256 - snappedEven / 2) % 2);
@@ -341,16 +364,18 @@ public class CoordinateMathTests
     [Fact]
     public void SnapZoomWindow_DriftPrevention_ChromaGridAlignment()
     {
+        // Real-world DRIFT_01 scenario: 2560x1440, 134x202 box at X=1188, Y=600
         double resW = 2560;
         double resH = 1440;
-        double targetZ = resH / 202.0;
-        double cropWRaw = resW / targetZ;
+        double targetZ = resH / 202.0; // ~7.1287
+        double cropWRaw = resW / targetZ; // ~359.1111
         double cropHRaw = 202.0;
-        double cxTarget = 1188 + 134 / 2.0;
-        double cyTarget = 600 + 202 / 2.0;
+        double cxTarget = 1188 + 134 / 2.0; // 1255
+        double cyTarget = 600 + 202 / 2.0;  // 701
 
         var zwin = CoordinateMath.SnapZoomWindow(cropWRaw, cropHRaw, resW, resH, cxTarget, cyTarget);
 
+        // 1. Parity and Chroma grid alignment (all dimensions and offsets must be even integers)
         Assert.Equal(0, zwin.CropW % 2);
         Assert.Equal(0, zwin.CropH % 2);
         Assert.Equal(0, zwin.CropX % 2);
@@ -358,18 +383,24 @@ public class CoordinateMathTests
         Assert.Equal(0, zwin.PadX % 2);
         Assert.Equal(0, zwin.PadY % 2);
 
+        // 2. Exact center preservation
         int cx = (int)Math.Round(cxTarget, MidpointRounding.AwayFromZero);
         int cy = (int)Math.Round(cyTarget, MidpointRounding.AwayFromZero);
         Assert.Equal(zwin.PadX + cx - zwin.CropW / 2, zwin.CropX);
         Assert.Equal(zwin.PadY + cy - zwin.CropH / 2, zwin.CropY);
 
+        // 3. Canvas dimensions encompass source plus padding
         Assert.Equal((int)resW + 2 * zwin.PadX, zwin.CanvasW);
         Assert.Equal((int)resH + 2 * zwin.PadY, zwin.CanvasH);
 
+        // 4. Extent is within 2px of raw calculation
         Assert.True(Math.Abs(zwin.CropW - cropWRaw) <= 2.5);
         Assert.True(Math.Abs(zwin.CropH - cropHRaw) <= 2.5);
     }
 
+    // =========================================================================
+    // 7. Coordinate Transforms and Boundary Snapping
+    // =========================================================================
 
     [Fact]
     public void TransformToContentArea_ExactRational_IsSymmetric()

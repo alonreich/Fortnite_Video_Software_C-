@@ -1,4 +1,7 @@
-﻿namespace FreeVideoStudio.Core.Media;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+namespace FreeVideoStudio.Core.Media;
 
 public static class OutputFileSize
 {
@@ -10,6 +13,7 @@ public static class OutputFileSize
         return mb >= 10 ? $"{mb:0} MB" : $"{mb:0.0} MB";
     }
 
+    // SIZEESTIMATE_01 — the same constant-quality value used by MergerWorker.
     public static int MergerConstantQuality(int percent)
         => percent >= 100 ? 15 : Math.Max(15, 35 - (int)((percent - 5) * 20.0 / 95.0));
 

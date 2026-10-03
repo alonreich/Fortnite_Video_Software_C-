@@ -1,4 +1,6 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -94,8 +96,10 @@ internal static class UpgradeCoordinator
             RequireMachineJournal(machine);
             string[] roots = ready["roots"]!.AsArray().Select(x => x!.GetValue<string>()).ToArray();
             await RecoverUserSessionAsync().ConfigureAwait(false);
+            // NOSPACE_01 — the spaced CURRENT-brand folder is not a previous brand: moving it must not
+            // make a previous brand's leftover settings win over the user's current ones.
             bool preferLegacy = !args.Contains("--source-current", StringComparer.OrdinalIgnoreCase) &&
-                roots.Any(p => !p.Equals(InstallDiscovery.Destination, StringComparison.OrdinalIgnoreCase));
+                roots.Any(p => !InstallDiscovery.KnownDestinations.Contains(UpgradeFiles.FullPath(p), StringComparer.OrdinalIgnoreCase));
             Directory.CreateDirectory(Store);
             string shellBackup = Path.Combine(Store, "shell-" + Guid.NewGuid().ToString("N"));
             var shell = new UpgradeRegistration(false, shellBackup, roots);
@@ -175,6 +179,46 @@ internal static class UpgradeCoordinator
         }
     }
 
+    /// <summary>
+    /// NOSPACE_01 — repoints THIS user's own shortcuts after a LATER machine install moved the
+    /// program (Program Files\Free Video Studio → Program Files\FreeVideoStudio).
+    ///
+    /// The installing user's shortcuts are handled by the broker, and the machine-wide Start menu
+    /// and Public Desktop by the elevated worker. Every OTHER account on the PC already completed
+    /// its own migration earlier (session "Committed"), so <see cref="CompleteUserAsync"/> never
+    /// looked again — their personal Desktop icon kept pointing at a folder that no longer exists.
+    ///
+    /// Only links that already exist and point into a moved folder are rewritten; nothing is
+    /// created, so a deliberately deleted icon stays deleted. Runs once per machine transaction
+    /// (recorded as "retargetedMachine"). Never throws: a failure is logged and retried next start.
+    /// </summary>
+    private static async Task RetargetAfterLaterMachineMoveAsync(JsonObject session)
+    {
+        try
+        {
+            string? latest = Directory.Exists(InstallDiscovery.Store)
+                ? Directory.EnumerateDirectories(InstallDiscovery.Store)
+                    .Where(p => File.Exists(Path.Combine(p, "journal.json")) && DirectoryUpgrade.IsCommitted(p))
+                    .OrderByDescending(Directory.GetLastWriteTimeUtc).FirstOrDefault() : null;
+            if (latest == null) return;
+            if (string.Equals(latest, session["machine"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase)) return;
+            if (string.Equals(latest, session["retargetedMachine"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase)) return;
+
+            var journal = AtomicJsonFile.ReadObject(Path.Combine(latest, "journal.json"))!;
+            string[] moved = journal["Originals"]!.AsArray().Select(x => x!["Path"]!.GetValue<string>())
+                .Where(p => !string.Equals(UpgradeFiles.FullPath(p), UpgradeFiles.FullPath(InstallDiscovery.Destination), StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            int changed = moved.Length == 0 ? 0 : await UpgradeRegistration.RetargetUserLinksAsync(moved).ConfigureAwait(false);
+            session["retargetedMachine"] = latest;
+            Save(session);
+            RuntimeLog.Info("Upgrade", $"Repointed {changed} personal shortcut(s) after the program moved.");
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.WarnThrottled("Upgrade shortcuts", $"Personal shortcuts were not repointed; will retry: {ex.Message}");
+        }
+    }
+
     internal static void ValidateSettings()
     {
         ValidateSettingsFile(Path.Combine(UserDataUpgrade.LocalRoot, "settings.json"));
@@ -247,6 +291,7 @@ internal static class UpgradeCoordinator
                     await TryApplyShellAsync(shell, session).ConfigureAwait(false);
                     await TryRemoveShellAsync(shell, session).ConfigureAwait(false);
                 }
+                await RetargetAfterLaterMachineMoveAsync(session).ConfigureAwait(false);   // NOSPACE_01
             }
             else
             {

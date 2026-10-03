@@ -1,4 +1,9 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 
 namespace FreeVideoStudio.Core.Media;
@@ -38,6 +43,9 @@ public sealed record PreviewStep(
     public bool IsHold => Kind is PreviewStepKind.Freeze or PreviewStepKind.Meme;
 }
 
+/// <summary>MEMEMODE_01 — one corner overlay's visible span on the gameplay clock.</summary>
+public sealed record CornerOverlaySpan(MemePlacement Meme, double GameStartSec, double GameEndSec);
+
 /// <summary>
 /// ══════════════════════════════════════════════════════════════════════════════════════════════
 /// MERGEPREVIEW_01 — THE MERGER PREVIEW PLAYS THE EXPORT'S SCHEDULE (Video-Merger-Migration.md P8.1).
@@ -72,6 +80,13 @@ public sealed class MergerPreviewPlan
     /// for <c>MemePreviewDirector</c>, which plays the cut-away when forward playback crosses it.
     /// </summary>
     public IReadOnlyList<MemePlacement> MemePlacements { get; }
+
+    /// <summary>
+    /// MEMEMODE_01 — every corner overlay, on the GAMEPLAY clock (<see cref="GameplaySecAt"/>: body
+    /// output seconds with full-screen meme holds removed), clipped to its clip. Corner overlays are
+    /// never steps: they do not pause, seek or swap the gameplay.
+    /// </summary>
+    public IReadOnlyList<CornerOverlaySpan> CornerOverlays { get; private set; } = Array.Empty<CornerOverlaySpan>();
 
     public static readonly MergerPreviewPlan Empty = new(new List<PreviewStep>(), 0, false);
 
@@ -119,7 +134,51 @@ public sealed class MergerPreviewPlan
                 outCursor += step.OutputLengthSec;
             }
         }
-        return new MergerPreviewPlan(steps, tl.TotalMergedFrames / (double)CompositeTimeline.MergeFps, effects);
+        var plan = new MergerPreviewPlan(steps, tl.TotalMergedFrames / (double)CompositeTimeline.MergeFps, effects);
+
+        // MEMEMODE_01 — corner overlays: anchored where the user put them, D seconds of gameplay long.
+        var corners = new List<CornerOverlaySpan>();
+        foreach (var c in tl.Clips)
+        {
+            if (c.MergedFrames <= 0) continue;
+            var edlClip = tl.Edl.Clips[c.Index];
+            double clipStart = c.MergedStartFrame / (double)CompositeTimeline.MergeFps;
+            double clipEnd = c.MergedEndFrame / (double)CompositeTimeline.MergeFps;
+            double keepSec = c.MergedFrames / (double)CompositeTimeline.MergeFps;
+            double gameClipStart = plan.GameplaySecAt(clipStart);
+            double gameClipEnd = plan.GameplaySecAt(clipEnd);
+            foreach (var m in edlClip.Effects.Memes)
+            {
+                if (!m.IsCornerOverlay) continue;
+                double rel = CompositeTimeline.MemeAtRelSec(edlClip, m, c.KeepInUs, c.KeepOutUs, keepSec);
+                double anchorMerged = clipStart + rel;
+                var vis = MemePlacement.VisibleInterval(plan.GameplaySecAt(anchorMerged) - gameClipStart, m.DurationSec, gameClipEnd - gameClipStart);
+                if (vis is not { } v) continue;
+                corners.Add(new CornerOverlaySpan(
+                    new MemePlacement(m.FilePath, anchorMerged, m.DurationSec, m.Id, m.Mode, m.Corner, m.Size, m.PlaySound),
+                    gameClipStart + v.StartSec, gameClipStart + v.EndSec));
+            }
+        }
+        plan.CornerOverlays = corners;
+        return plan;
+    }
+
+    /// <summary>
+    /// MEMEMODE_01 — the GAMEPLAY clock at <paramref name="mergedSec"/>: <see cref="OutputSecAt"/> minus
+    /// every full-screen meme hold already passed. Corner overlays run on this clock, so a full-screen
+    /// cutaway pauses them exactly as it pauses the gameplay they sit on (the export overlays them on
+    /// the clip body before the cutaways are spliced in).
+    /// </summary>
+    public double GameplaySecAt(double mergedSec)
+    {
+        double t = Math.Clamp(mergedSec, 0, TotalMergedSec);
+        double memeHolds = 0;
+        foreach (var s in Steps)
+        {
+            if (s.MergedStartSec > t + Eps) break;
+            if (s.Kind == PreviewStepKind.Meme && s.MergedStartSec < t - Eps) memeHolds += s.HoldSec;
+        }
+        return OutputSecAt(mergedSec) - memeHolds;
     }
 
     private static EdlMeme? FindMeme(IReadOnlyList<EdlMeme> memes, string? id)
@@ -155,6 +214,7 @@ public sealed class MergerPreviewPlan
             if (mergedSec >= s.MergedStartSec - Eps && mergedSec < s.MergedEndSec - Eps)
             {
                 double resume = s.MergedEndSec;
+                // Back-to-back cuts across a clip boundary: keep jumping.
                 var next = CutResumeAt(resume + Eps * 2);
                 return next ?? resume;
             }

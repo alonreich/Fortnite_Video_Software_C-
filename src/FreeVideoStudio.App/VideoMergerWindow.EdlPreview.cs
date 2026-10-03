@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -29,14 +35,14 @@ namespace FreeVideoStudio.App;
 /// </summary>
 public partial class VideoMergerWindow
 {
-    private const int EdlLoadGraceTicks = 8;
+    private const int EdlLoadGraceTicks = 8;   // 8 x 100 ms: mpv may still report the previous file
 
-    private string? _edlUrl;
-    private MergedTimeline? _edlTimeline;
+    private string? _edlUrl;                   // the EDL mpv holds (null = a single file or nothing)
+    private MergedTimeline? _edlTimeline;      // the layout that URL was built from
     private double _edlLoadTarget;
 
     private MergeEdl? _planEdl;
-    private MergerPreviewPlan? _plan;
+    private MergerPreviewPlan? _plan;          // null = the edit list does not describe the queue yet
     private double _appliedSpeed = double.NaN;
     private int _consumedHold = -1;
     private int _planMismatchTicks;
@@ -103,7 +109,7 @@ public partial class VideoMergerWindow
         _mergedEndReached = false;
         _appliedSpeed = double.NaN;
         RearmPreviewEffects(at);
-        _pendingMiddleSeekPath = null;
+        _pendingMiddleSeekPath = null;   // the legacy per-clip machinery stands down
         _autoAdvanceArmed = false;
 
         _ = LoadEdlAsync(ipc, url, at, playNow);
@@ -115,7 +121,7 @@ public partial class VideoMergerWindow
     {
         try
         {
-            await ipc.SetPropertyAsync("hr-seek", "yes");
+            await ipc.SetPropertyAsync("hr-seek", "yes");   // P4.1 criterion 4: a seek lands on the exact frame
             await ipc.SetPropertyAsync("mute", _previewMuted ? "yes" : "no");
             await ipc.LoadFileAsync(url, at);
             await ipc.SetPropertyAsync("pause", play ? "no" : "yes");
@@ -140,6 +146,7 @@ public partial class VideoMergerWindow
                 : _timeline.Clips.ToList().FindIndex(c => SameVideoPath(c.Path, path));
             return ni < 0 ? Math.Min(_lastMergedPos, _timeline.TotalSec) : _timeline.ToMerged(ni, src);
         }
+        // The legacy per-file preview was showing the selected clip.
         int sel = VideoListCtl?.SelectedIndex ?? -1;
         return sel >= 0 && sel < _timeline.Clips.Count ? _timeline.ToMerged(sel, ipc.CurrentTime) : 0;
     }
@@ -157,6 +164,7 @@ public partial class VideoMergerWindow
         return Math.Clamp(t, 0, _timeline.TotalSec);
     }
 
+    // ── P8.1 — effects ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>Rebuilds the schedule when the edit list changes. No schedule while it does not describe the queue.</summary>
     private void EnsurePreviewPlan()
@@ -171,7 +179,10 @@ public partial class VideoMergerWindow
         var composite = CompositeTimeline.Build(edl);
         if (composite.TotalMergedFrames != _timeline.Composite.TotalMergedFrames)
         {
-            _planEdl = null;
+            // The analysis and the edit list disagree on a kept window. Normal for a tick or two right
+            // after clips are added (the capture is posted after the analysis lands, P10.7); only a
+            // disagreement that PERSISTS (~2 s) is worth a warning.
+            _planEdl = null;   // re-evaluate next tick
             if (++_planMismatchTicks == 20)
                 RuntimeLog.Warn("MERGER", $"Preview effects are off: the edit list ({composite.TotalMergedFrames} frames) and the analysed timeline ({_timeline.Composite.TotalMergedFrames} frames) still differ.");
             return;
@@ -187,7 +198,7 @@ public partial class VideoMergerWindow
         EndHold(resume: false);
         _consumedHold = _plan?.LastStepIndexBefore(mergedSec) ?? -1;
         _prevTickPos = mergedSec;
-        _memePreview?.NotifySeek();
+        _memePreview?.NotifySeek();   // MEME_07 — a seek is never a crossing
     }
 
     /// <summary>True while a freeze (or, until P8.2, a meme) is being held.</summary>
@@ -202,6 +213,7 @@ public partial class VideoMergerWindow
             if (hold == null) { EndHold(resume: false); }
             else if (!ipc.IsPaused)
             {
+                // The user pressed the (pause-showing) transport during the hold: that is a pause.
                 EndHold(resume: false);
                 _ = ipc.SetPropertyAsync("pause", "yes");
                 merged = hold.MergedStartSec;
@@ -228,14 +240,16 @@ public partial class VideoMergerWindow
             return false;
         }
 
+        // CUT_01 parity — deleted footage is jumped over, never played.
         if (plan.CutResumeAt(merged) is double resume)
         {
             _ = SeekInternal(resume);
             merged = resume;
         }
 
+        // FREEZE_01 parity — every hold between the last tick and now fires once.
         double from = Math.Min(_prevTickPos, merged);
-        int h = plan.NextHold(from, merged, _consumedHold, includeMemes: false);
+        int h = plan.NextHold(from, merged, _consumedHold, includeMemes: false);   // memes: MemePreviewDirector
         if (h >= 0)
         {
             var step = plan.Steps[h];
@@ -244,7 +258,7 @@ public partial class VideoMergerWindow
             _holdStartTicks = Environment.TickCount64;
             _holdUntilTicks = _holdStartTicks + (long)Math.Round(step.HoldSec * 1000.0);
             _ = ipc.SetPropertyAsync("pause", "yes");
-            _ = SeekInternal(step.MergedStartSec);
+            _ = SeekInternal(step.MergedStartSec);   // show the held frame, not the one a tick later
             merged = step.MergedStartSec;
             RuntimeLog.Debug("MERGER", $"Preview hold: {step.Kind} at {step.MergedStartSec:F3}s for {step.HoldSec:F2}s.");
             return true;
@@ -260,6 +274,7 @@ public partial class VideoMergerWindow
         return false;
     }
 
+    // ── P8.2 — memes ───────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// MEME_07 in the Merger. True while mpv is NOT showing the merge (a meme is loading, playing or
@@ -272,18 +287,22 @@ public partial class VideoMergerWindow
         {
             _memePreview = new Infrastructure.MemePreviewDirector(
                 () => _videoHost?.IpcClient,
-                () => _edlUrl,
-                () => 0.0,
+                () => _edlUrl,          // the gameplay is the EDL; its clock is the merged clock
+                () => 0.0,              // placements are already on the merged clock
                 (visible, message) => Infrastructure.MemeSwapOverlay.Set(this, visible, message),
                 "MERGER");
+            // Same agreed behaviour as the Main App: the meme's own sound plays, the music stops and
+            // picks up again at the right output moment once the merge is back.
             _memePreview.MemeStarted += () => _ = StopMergerMusicPreview();
-            _memePreview.MemeEnded += () => _appliedSpeed = double.NaN;
+            _memePreview.MemeEnded += () => _appliedSpeed = double.NaN;   // the director restored mpv's speed; re-assert the schedule
         }
-        if (_memePreview == null) return false;
+        if (_memePreview == null) { UpdateMergerCornerMemes(cutawayActive: false); return false; }
 
+        // A meme only starts from real forward playback of a loaded EDL, never mid-load or mid-hold.
         _memePreview.Suspended = _edlUrl == null || _clipLoadGraceTicks > 0 || _holdStep >= 0 || _draggingThumbMarker || _draggingClipChip;
         _memePreview.SetMemes(memes);
         _memePreview.Tick();
+        UpdateMergerCornerMemes(_memePreview.IsActive);   // MEMEMODE_01
         return _memePreview.IsActive;
     }
 

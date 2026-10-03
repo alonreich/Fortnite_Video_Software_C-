@@ -25,10 +25,11 @@ public class ProgressiveLanesTests
         Assert.True(tiles.Zip(tiles.Skip(1)).All(p => p.First.X0 < p.Second.X0));
         Assert.Equal(0, tiles[0].X0, 6);
         Assert.Equal(200, tiles[0].X1, 6);
-        Assert.Equal(10, tiles[0].Frames);
+        Assert.Equal(10, tiles[0].Frames);         // LANECACHE_02: a fixed grid, 1 frame/s of a 10 s clip — not the width
         Assert.Equal(0.1, tiles[0].StartSec, 6);
         Assert.Equal(10, tiles[0].DurationSec, 6);
 
+        // Same clip + window → same key at ANY width and ANY position (resize/reorder = cache hit); another file identity → new key.
         var again = LanePlanner.Plan(clips, 40, 1600, 64, "film");
         Assert.Equal(tiles[0].CacheKey, again[0].CacheKey);
         Assert.Equal(tiles[0].Frames, again[0].Frames);
@@ -88,7 +89,7 @@ public class ProgressiveLanesTests
         gate.SetResult();
         await Task.WhenAll(first, second);
 
-        Assert.Empty(oldDone);
+        Assert.Empty(oldDone);                 // stale work never finished
         Assert.Equal(2, newDone.Count);
         Assert.Equal(runner.Generation, newGen);
     }
@@ -114,7 +115,7 @@ public class ProgressiveLanesTests
         var cache = new LaneCache<string>(2, v => evicted.Add(v));
         cache.Put("a", "A");
         cache.Put("b", "B");
-        Assert.True(cache.TryGet("a", out _));
+        Assert.True(cache.TryGet("a", out _));   // a is now most recent
         cache.Put("c", "C");
         Assert.Equal(new[] { "B" }, evicted);
         Assert.False(cache.TryGet("b", out _));
@@ -131,12 +132,12 @@ public class ProgressiveLanesTests
     public void ThumbGrid_FixedPerClip_SlotsPickTheNearestFrame()
     {
         Assert.Equal(1, ThumbGrid.FrameCount(0.4));
-        Assert.Equal(80, ThumbGrid.FrameCount(80));
-        Assert.Equal(90, ThumbGrid.FrameCount(3600));
+        Assert.Equal(80, ThumbGrid.FrameCount(80));          // 1 frame per second
+        Assert.Equal(90, ThumbGrid.FrameCount(3600));        // capped
         Assert.Equal(3, ThumbGrid.Slots(200, 64));
         Assert.Equal(1, ThumbGrid.Slots(5, 64));
-        Assert.Equal(new[] { 1, 5, 8 }, ThumbGrid.Pick(10, 3));
-        Assert.Equal(new[] { 0, 0, 1, 1 }, ThumbGrid.Pick(2, 4));
+        Assert.Equal(new[] { 1, 5, 8 }, ThumbGrid.Pick(10, 3));   // slot centres 1.67, 5, 8.33 → floor
+        Assert.Equal(new[] { 0, 0, 1, 1 }, ThumbGrid.Pick(2, 4));   // more slots than frames: repeats, never out of range
     }
 
     [Fact]

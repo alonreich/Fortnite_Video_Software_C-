@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using Avalonia;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -52,19 +55,19 @@ internal static class GrabCursors
 
     /// <summary>Palm, four raised fingers and the thumb out to the side.</summary>
     private static Geometry OpenHand() => Union(
-        R(6.5, 10.5, 12.5, 11, 3.5),
-        R(6.5, 4.0, 3.0, 10, 1.5),
-        R(9.8, 2.5, 3.0, 11, 1.5),
-        R(13.1, 3.0, 3.0, 10.5, 1.5),
-        R(16.2, 5.0, 2.8, 9, 1.4),
-        R(2.8, 10.0, 5.5, 3.2, 1.6));
+        R(6.5, 10.5, 12.5, 11, 3.5),     // palm
+        R(6.5, 4.0, 3.0, 10, 1.5),       // index
+        R(9.8, 2.5, 3.0, 11, 1.5),       // middle
+        R(13.1, 3.0, 3.0, 10.5, 1.5),    // ring
+        R(16.2, 5.0, 2.8, 9, 1.4),       // little
+        R(2.8, 10.0, 5.5, 3.2, 1.6));    // thumb
 
     /// <summary>A closed fist: palm with the knuckles on top and the thumb folded across.</summary>
     private static Geometry Fist() => Union(
-        R(5.5, 9.0, 13.5, 11.5, 3.5),
-        R(6.0, 7.0, 3.2, 4.5, 1.6),
+        R(5.5, 9.0, 13.5, 11.5, 3.5),    // fist body
+        R(6.0, 7.0, 3.2, 4.5, 1.6),      // knuckles
         R(9.3, 6.5, 3.2, 4.5, 1.6),
         R(12.6, 6.8, 3.2, 4.5, 1.6),
         R(15.7, 7.6, 3.0, 4.0, 1.5),
-        R(4.0, 12.5, 8.5, 3.2, 1.6));
+        R(4.0, 12.5, 8.5, 3.2, 1.6));    // thumb across the front
 }

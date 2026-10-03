@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/03_FFMPEG_EXPORT_PIPELINE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 
 using System.Globalization;
 using System.Text;
@@ -71,6 +74,10 @@ public class GranularSpeedBuilder
         double sourceCutStartMs = 0,
         IReadOnlyList<OutputTimeline.Cut>? cuts = null)
     {
+        // CUT_01 — cuts ride the SAME mapper every other feature already uses. This is the whole
+        // reason voice-overs, memes and the music timeline need no changes to survive a cut: they
+        // are all stored in SOURCE time and converted through here, so removing footage slides
+        // them exactly as slow-motion and freezes already do.
         return OutputTimeline.Create(totalDurationMs, segments, baseSpeed, sourceCutStartMs, null, cuts)
                              .SourceToOutput;
     }
@@ -101,6 +108,10 @@ public class GranularSpeedBuilder
     {
         if (chunkDurationSec <= SpliceFadeSec * 3) return string.Empty;
 
+        // SPLICE_02 — the fade is now capped at 2% of the chunk at each end. 8ms was sized for
+        // joins about a second apart; with the neighbour gap lifted, blocks can touch and a run of
+        // short blocks put 16ms of ramp on a 200ms chunk (8% of it), which reads as a gargle rather
+        // than a de-click. Chunks of 400ms and up are unaffected and still get the full 8ms.
         double fade = Math.Min(SpliceFadeSec, chunkDurationSec / 50.0);
         string f = fade.ToString("F4", CultureInfo.InvariantCulture);
 
@@ -223,6 +234,8 @@ public class GranularSpeedBuilder
         double timelineOriginSec = sourceCutStartMs / 1000.0;
         var preChainParts = new List<string>();
 
+        // CUT_01 — normalised through the SAME method OutputTimeline uses, so the graph this
+        // builds and the timeline the UI draws can never disagree about where the holes are.
         var activeCuts = OutputTimeline.NormalizeCuts(cuts, totalDurationSec);
 
         bool InsideCut(double at)
@@ -339,6 +352,11 @@ public class GranularSpeedBuilder
                 if (sp.start > rangeStart && sp.start < rangeEnd) subBounds.Add(sp.start);
                 if (sp.end > rangeStart && sp.end < rangeEnd) subBounds.Add(sp.end);
             }
+            // CUT_01 — a cut edge is a subdivision boundary exactly like a speed or zoom edge.
+            // Adding them here means the existing boundary machinery does the splitting, and the
+            // only extra work below is DROPPING the sub-ranges that fall inside a hole. This is
+            // also what makes "a cut through the middle of a slow-mo + zoom block" fall out for
+            // free: the block was already going to be subdivided at those boundaries.
             foreach (var c in activeCuts)
             {
                 if (c.StartSec > rangeStart && c.StartSec < rangeEnd) subBounds.Add(c.StartSec);
@@ -359,6 +377,11 @@ public class GranularSpeedBuilder
                 if (cEnd <= cStart + 0.001) continue;
                 double mid = (cStart + cEnd) / 2.0;
 
+                // CUT_01 — THE ENTIRE REMOVAL, RIGHT HERE. A sub-range whose midpoint is inside a
+                // cut never becomes a chunk, so it is never trimmed, never decoded, never handed to
+                // concat, and never reaches the output file. Testing the MIDPOINT rather than an
+                // edge is deliberate: edges are shared with the neighbouring surviving range, and
+                // an edge test would drop the wrong side.
                 if (InsideCut(mid)) continue;
 
                 double cSpeed = baseSpeed;
@@ -383,6 +406,9 @@ public class GranularSpeedBuilder
             double fEnd = Math.Max(fStart, f.end);
             if (fEnd <= sourceCursor + 0.001) continue;
 
+            // CUT_01 — must match OutputTimeline.Create exactly: a freeze whose held frame was
+            // deleted is dropped. If these two ever disagree the exported length and the length the
+            // UI predicts drift apart, which is the class of bug OutputTimeline was created to end.
             if (InsideCut(fStart)) continue;
 
             if (fStart > sourceCursor + 0.001)
@@ -405,6 +431,10 @@ public class GranularSpeedBuilder
 
         int nChunks = chunks.Count;
 
+        // CUT_01 — a cut list that removes every surviving frame would fall through to the
+        // "no chunks" fast path below and silently export the WHOLE clip, cuts ignored — the worst
+        // possible failure, because it looks like the feature simply did not work. The UI refuses
+        // to leave less than one frame, so reaching here means a bad saved state; fail loudly.
         if (nChunks == 0 && activeCuts.Count > 0)
         {
             CoreLogger.Fail("GranularSpeed",
@@ -425,8 +455,9 @@ public class GranularSpeedBuilder
 
         if (nChunks == 0)
         {
-            var audioFilters = BuildAtempoChain(baseSpeed);
-            string baseAtempoSegment = audioFilters.Count > 0 ? "," + string.Join(",", audioFilters) : "";
+            // TEMPO_01 — the ONE tempo policy (AudioTempoFilterBuilder). AVSYNC_01: "" at 1.0x, and
+            // the leading comma lives in the segment so it disappears with it.
+            string baseAtempoSegment = AudioTempoFilterBuilder.Segment(baseSpeed, leadingComma: true);
             string aChain = !string.IsNullOrEmpty(inputAudioLabel)
                 ? $"{inputAudioLabel}aresample=48000:async=1,asetpts=PTS-STARTPTS{baseAtempoSegment}[a_speed_out]"
                 : $"anullsrc=r=48000:cl=stereo,atrim=duration={(totalDurationSec / baseSpeed).ToString("F4", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a_speed_out]";
@@ -632,7 +663,6 @@ public class GranularSpeedBuilder
                         $"setpts=N/({targetFps})/TB," +
                         $"trim=duration={freezeQuantDur.ToString("F5", CultureInfo.InvariantCulture)},setpts=PTS-STARTPTS{vChunkHudLabel}");
                 }
-
                 if (!string.IsNullOrEmpty(aSrc))
                     fullParts.Add($"{aSrc}anullsink");
 
@@ -665,12 +695,21 @@ public class GranularSpeedBuilder
                         $"format=yuv420p,setsar=1{vChunkHudLabel}");
                 }
 
-                var audioFilters = BuildAtempoChain(chunk.Speed);
+
                 if (!string.IsNullOrEmpty(aSrc))
                 {
+                    // CUT_01 / SPLICE_01 — a few milliseconds of fade on each end of every audio
+                    // chunk. `concat` butt-joins waveforms, and a butt-join between two unrelated
+                    // instants is a step discontinuity, which is heard as a click or pop. This has
+                    // ALWAYS been true at speed-change and freeze boundaries; cuts just make it far
+                    // more likely, because the two sides of a cut are arbitrarily far apart.
+                    // Deliberately shorter than one frame at 60fps, so it cannot be heard as a dip.
                     string spliceFade = BuildSpliceFade(quantizedDur);
 
-                    string atempoSegment = audioFilters.Count > 0 ? string.Join(",", audioFilters) + "," : "";
+                    // TEMPO_01 — the ONE tempo policy, BEFORE the apad/atrim bound and the splice
+                    // fade, so the chunk keeps its exact length and its de-click whichever engine
+                    // runs. AVSYNC_01: "" at 1.0x — no dangling comma.
+                    string atempoSegment = AudioTempoFilterBuilder.Segment(chunk.Speed, leadingComma: false);
                     fullParts.Add(
                         $"{aSrc}atrim=start={chunk.Start.ToString("F4", CultureInfo.InvariantCulture)}:end={chunk.End.ToString("F4", CultureInfo.InvariantCulture)}," +
                         $"aresample=48000:async=1:min_comp=0.001," +
@@ -770,48 +809,12 @@ public class GranularSpeedBuilder
     }
 
     /// <summary>
-    /// ISSUE_04 — converts a playback rate into FFmpeg's atempo chain.
-    ///
-    /// WHAT WAS WRONG: the two normalisation loops below divide by 0.5 and 2.0 respectively.
-    /// For any speed that is zero or negative those divisions never move the value across the
-    /// loop's exit threshold — 0/0.5 is 0 forever, -1/0.5 marches away to -infinity — so the
-    /// loop spun endlessly while appending to `filters`. The app froze solid the moment the user
-    /// pressed PROCESS and ate memory until it was killed, with no error and nothing in the log.
-    /// Nothing inside this method guarded against it, and it is a public helper called from
-    /// several places, so the guard belongs HERE rather than at each call site.
-    ///
-    /// Recovery restore was the realistic route in: it read the saved base speed straight out of
-    /// the JSON with no range check (now also clamped at that call site).
+    /// ISSUE_04 — the atempo-only chain, kept as a forwarder for the gates that check atempo's
+    /// [0.5, 2.0] element bounds. The guard against impossible rates and the AVSYNC_01 empty chain
+    /// at 1.0x live in <see cref="AudioTempoFilterBuilder"/>; export routes call
+    /// <see cref="AudioTempoFilterBuilder.Build(double)"/> (TEMPO_01), never this.
     /// </summary>
-    public static List<string> BuildAtempoChain(double speed)
-    {
-        if (double.IsNaN(speed) || double.IsInfinity(speed) || speed <= 0.0)
-        {
-            CoreLogger.Fail("GranularSpeed",
-                $"Refusing to build an audio speed chain for an impossible rate ({speed}). " +
-                "Falling back to normal speed (1.0x) so the export can still complete.");
-            speed = 1.0;
-        }
-
-        speed = Math.Clamp(speed, 0.01, 100.0);
-
-        return BuildAtempoChainCore(speed);
-    }
-
-    private static List<string> BuildAtempoChainCore(double speed)
-    {
-        var filters = new List<string>();
-
-        if (Math.Abs(speed - 1.0) < 0.0001) return filters;
-
-        double tmp = speed;
-
-        while (tmp < 0.5) { filters.Add("atempo=0.5"); tmp /= 0.5; }
-        while (tmp > 2.0) { filters.Add("atempo=2.0"); tmp /= 2.0; }
-        filters.Add($"atempo={tmp.ToString("F4", CultureInfo.InvariantCulture)}");
-
-        return filters;
-    }
+    public static List<string> BuildAtempoChain(double speed) => AudioTempoFilterBuilder.BuildAtempoChain(speed);
 
     private static double ParseFps(string fpsExpr)
     {
@@ -823,7 +826,7 @@ public class GranularSpeedBuilder
         }
         catch (System.Exception swallowed)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed);   // FAULTTIER_02 — no failure is silent.
             return 60.0;
         }
     }

@@ -1,4 +1,7 @@
-﻿using System.Diagnostics;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md, docs/SPEC_GOVERNANCE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -24,8 +27,24 @@ public sealed class RecoveryManager
 
     private readonly ApplicationPaths _paths;
     private readonly TimeSpan _safeModeThreshold = TimeSpan.FromSeconds(120);
-    private static readonly object _saveLock = new();
+    private static readonly object _saveLock = new(); // Shared by the main window and editor writers.
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // WRITEORDER_01 — ONE PROCESS-WIDE ORDER FOR EVERY WHOLE-FILE WRITE AND DELETE.
+    //
+    // The sequence used to be PER INSTANCE and covered saves only. There are at least three
+    // RecoveryManager instances (MainWindow._recovery, ProjectRecoveryService, the granular editor),
+    // and ClearState() was not sequenced at all. It ran File.Delete outside the lock. So a
+    // SaveStateAsync queued BEFORE a ClearState could run AFTER it and resurrect the file. Two
+    // real triggers: undoing back to an empty project, and the clean-shutdown CleanupLock(). After
+    // that, the next launch could offer to "recover" work the user had deliberately discarded.
+    //
+    // Now every save and every clear takes a version FROM A STATIC COUNTER AT CALL TIME (the
+    // order the user caused them), and is applied under _saveLock only if it is newer than the
+    // last one applied to that file. An older queued save that loses the race is dropped. The
+    // granular editor's UpdateGranularSession is a read-modify-write MERGE of one sub-key, not a
+    // whole-file replacement, so it is serialised by the lock but not versioned against saves.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     private static long _writeVersion;
     private static readonly Dictionary<string, long> _appliedVersionByFile = new(StringComparer.OrdinalIgnoreCase);
 
@@ -134,22 +153,22 @@ public sealed class RecoveryManager
                     }
                     catch (ArgumentException swallowed3)
                     {
-                        global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);
+                        global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
                     }
                     catch (InvalidOperationException swallowed4)
                     {
-                        global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);
+                        global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
                     }
                     catch (System.ComponentModel.Win32Exception swallowed7)
                     {
-                        global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);
+                        global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
                     }
                 }
             }
         }
         catch (Exception swallowed6)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
         }
 
         CoreLogger.Info("Recovery", "Previous session did not shut down cleanly (crash detected). Recovery state is available to restore.");
@@ -227,17 +246,17 @@ public sealed class RecoveryManager
         }
         catch (ArgumentException swallowed8)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (InvalidOperationException swallowed2)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (System.ComponentModel.Win32Exception swallowed5)
         {
-            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);
+            global::FreeVideoStudio.Core.Infrastructure.CoreLogger.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
             return false;
         }
         catch (System.Exception ex) { CoreLogger.Swallowed(ex); return false; }
@@ -343,7 +362,7 @@ public sealed class RecoveryManager
 
     public void SaveStateAsync(JsonObject state)
     {
-        long version = NextVersion();
+        long version = NextVersion();   // WRITEORDER_01 — ordered by when the edit happened, not when the pool runs it
         Task.Run(() => SaveStateVersioned(state, version));
     }
 
@@ -355,7 +374,10 @@ public sealed class RecoveryManager
             var state = AtomicJsonFile.ReadObject(_paths.RecoveryStateFile);
             if (state == null && session == null) return;
             state ??= new JsonObject();
+            // Explicit null suppresses SaveState's preservation rule on deliberate close.
             state["granular_session"] = session?.DeepClone();
+            // WRITEORDER_01 — a sub-key MERGE, serialised by the lock but not versioned: it must
+            // not make a queued main-window save look stale (that would drop the user's edit).
             WriteLocked(state);
         }
     }
@@ -390,6 +412,8 @@ public sealed class RecoveryManager
 
                 state["schema_version"] = SchemaVersion;
 
+                // RECOVERY_03 — if an active granular editing session exists in the current recovery file,
+                // preserve it so an app-level state save does not wipe out the in-flight granular edits.
                 if (!state.ContainsKey("granular_session") && File.Exists(_paths.RecoveryStateFile))
                 {
                     try
@@ -472,7 +496,7 @@ public sealed class RecoveryManager
 
     public void ClearState()
     {
-        long version = NextVersion();
+        long version = NextVersion();   // WRITEORDER_01 — any save queued before this is now stale
         lock (_saveLock)
         {
             if (!TryClaimVersionLocked(version)) return;

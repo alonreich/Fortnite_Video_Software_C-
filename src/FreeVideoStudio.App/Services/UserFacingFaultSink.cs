@@ -1,4 +1,7 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/08_APPLICATION_COMPOSITION.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Collections.Generic;
 using Avalonia.Threading;
@@ -64,6 +67,8 @@ public sealed class UserFacingFaultSink : IFaultSink
         }
         catch (Exception ex)
         {
+            // Last resort only. Reaching here means the reporting path itself broke; there is
+            // nothing further to escalate to, and throwing would take down the caller's thread.
             RuntimeLog.EmergencyWrite("FAULT SINK", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
@@ -77,6 +82,14 @@ public sealed class UserFacingFaultSink : IFaultSink
         switch (fault.Tier)
         {
             case FaultTier.Recoverable:
+                // Breadcrumb only. By definition the user's outcome did not change, so anything
+                // on screen here would be noise about an event they have no action to take on.
+                //
+                // LOGVIS_01 — the breadcrumb used to be RuntimeLog.Debug, which is a no-op unless
+                // FVS_DEV_LOG_DIR is set, i.e. in EVERY shipped build. ~560 Swallowed() sites wrote
+                // nothing at all where users actually run the app. Now: one INFO line per call site
+                // per 30s (with a count of what the gate held back), in every build. The full stack
+                // trace stays dev-only.
                 FaultCounters.Record(fault);
                 if (RuntimeLog.TryPassThrottle("REC|" + fault.Area + "|" + CallSiteKey(detail), out int held))
                 {
@@ -109,6 +122,8 @@ public sealed class UserFacingFaultSink : IFaultSink
                 return;
 
             default:
+                // A tier added to the enum without a branch here would otherwise be silently
+                // dropped — the exact failure mode this file exists to abolish.
                 RuntimeLog.Fail(fault.Area, $"[UNCLASSIFIED tier={fault.Tier}] {fault.UserMessage} :: {detail}");
                 _notifier.Notify(fault.UserMessage, NoticeKind.Warning);
                 return;
@@ -144,6 +159,9 @@ public sealed class UserFacingFaultSink : IFaultSink
 
             _lastShown[key] = now;
 
+            // Bounded: this dictionary is keyed by message text, and a message embedding a value
+            // (a filename, a frame number) mints a new key every time. Without a ceiling it is an
+            // unbounded leak in a long editing session.
             if (_lastShown.Count > 256)
             {
                 DateTime cutoff = now.AddSeconds(-Math.Max(DegradedRepeatWindowSeconds, FatalRepeatWindowSeconds));
@@ -152,6 +170,8 @@ public sealed class UserFacingFaultSink : IFaultSink
                     if (entry.Value < cutoff) stale.Add(entry.Key);
                 foreach (string s in stale) _lastShown.Remove(s);
 
+                // Still over after the sweep means 256 distinct live messages in one window, which
+                // is itself a defect. Drop everything rather than grow.
                 if (_lastShown.Count > 256) _lastShown.Clear();
             }
 
@@ -184,6 +204,8 @@ public sealed class AvaloniaUserNotifier : IUserNotifier
 
     public void Notify(string text, NoticeKind kind = NoticeKind.Info)
     {
+        // FloatingNotice.Show is documented safe from any thread and safe before the window is
+        // shown; a null window degrades to the log rather than throwing (see IActiveWindowProvider).
         var window = _windows.ActiveWindow;
         if (window is null)
         {
@@ -204,6 +226,9 @@ public sealed class AvaloniaUserNotifier : IUserNotifier
             return;
         }
 
+        // Post, do not Invoke. A worker thread blocking on the UI thread to show an error is a
+        // deadlock waiting for the UI thread to be the one that is stuck — and the UI thread being
+        // stuck is a common reason a fatal fault is being raised in the first place.
         Dispatcher.UIThread.Post(() => NativeDialog.ShowError(body, title));
     }
 
@@ -212,9 +237,14 @@ public sealed class AvaloniaUserNotifier : IUserNotifier
         var window = _windows.ActiveWindow;
         if (window is null)
         {
+            // No owner window means no modal. Falling back to the native question box keeps the
+            // decision with the user instead of silently picking one for them.
             return await Dispatcher.UIThread.InvokeAsync(() => NativeDialog.ShowQuestion(message, title));
         }
 
+        // NOTE the argument order: AskAsync takes (owner, MESSAGE, TITLE, yes, no) — message
+        // before title. Getting it backwards compiles cleanly and ships a dialog whose caption is
+        // the body text, which is why it is spelled out here rather than left to the reader.
         return await ConfirmDialogWindow.AskAsync(window, message, title, confirmText, cancelText);
     }
 }

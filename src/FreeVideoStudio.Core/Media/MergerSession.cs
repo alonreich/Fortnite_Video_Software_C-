@@ -1,10 +1,23 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/05_SYSTEM_LIFECYCLE_STORAGE.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 
 namespace FreeVideoStudio.Core.Media;
 
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// MERGESESSION_01 — THE MERGER'S LIVE STATE ↔ ITS EDIT LIST (Video-Merger-Migration.md P3.2).
+//
+// The window still keeps its state the old way (an ObservableCollection<string>, a thumbnail path,
+// a MusicWizardResult). These pure helpers turn that state into a MergeEdl for autosave, the
+// project document and undo, and turn a saved MergeEdl back into what the window must restore.
+// Everything here is pure so it is unit-tested without a window, mpv or a disk.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
 
 /// <summary>
 /// One stable <see cref="Guid"/> per queue row, kept in step with the queue's collection events.
@@ -192,6 +205,9 @@ public static class MergerSession
             EdlAnchor start, end;
             if (timeline != null && timeline.Clips.Count == clips.Count && clips.Count > 0)
             {
+                // Stable capture: an anchor that still maps to the same moment is KEPT, so a clip-end
+                // anchor is not rewritten as "start of the next clip" (same moment, different data),
+                // which would look like an edit to undo (MERGEUNDO_01).
                 start = KeepOrLocate(timeline, clips, previous?.Music?.Start, m.StartMergedSec);
                 end = KeepOrLocate(timeline, clips, previous?.Music?.End, m.EndMergedSec);
             }
@@ -324,6 +340,7 @@ public static class MergerSession
         if (files.Count > maxListed) sb.Append($"\n  … and {files.Count - maxListed} more (all listed in the log).");
     }
 
+    // ── MERGEUNDO_01 — undo/redo support ────────────────────────────────────────────────────
 
     /// <summary>
     /// The part of an edit list the USER authored. Analysis results (length, timing tag, snapped

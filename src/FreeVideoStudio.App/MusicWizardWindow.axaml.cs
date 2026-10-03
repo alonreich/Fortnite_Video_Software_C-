@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/02_AUDIO_ENGINE_MASTERING.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using Avalonia.Controls;
 
 using Avalonia.Interactivity;
@@ -19,6 +25,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Platform.Storage;
 
+// TRACKSEARCH_01 / MWDRAW_01 / PEAKMATH_01 — helper types holding methods extracted verbatim from this class. Imported with
+// `using static` on purpose: every call site below keeps the exact unqualified spelling it
+// already had, so the extraction cannot change a single statement inside this file.
 using static FreeVideoStudio.App.Infrastructure.TrackSearch;
 using static FreeVideoStudio.App.Infrastructure.MusicWizardDraw;
 using static FreeVideoStudio.App.Infrastructure.AudioPeakMath;
@@ -69,11 +78,6 @@ public class MusicWizardResult
     public System.Collections.Generic.List<string> MusicFilePaths { get; set; } = new();
     public System.Collections.Generic.List<double> MusicDurationsSeconds { get; set; } = new();
     public double OffsetSeconds { get; set; } = 0.0;
-    public double SongStartSeconds
-    {
-        get => OffsetSeconds;
-        set => OffsetSeconds = value;
-    }
     public double TimelineStartSeconds { get; set; } = 0.0;
     public double TimelineEndSeconds { get; set; } = 0.0;
     public bool EnableDucking { get; set; } = true;
@@ -99,11 +103,11 @@ public partial class MusicWizardWindow : Window
     public MusicWizardResult? Result { get; private set; }
 
     /// <summary>
-    /// EDIT3_01 â€” an existing music placement to REOPEN rather than start from nothing.
+    /// EDIT3_01 — an existing music placement to REOPEN rather than start from nothing.
     ///
     /// Set by the Main App when the user chose EDIT on the ADD MUSIC button. When present the
     /// wizard restores the track, the song start point, the queue, the two volume sliders and the
-    /// three phase-3 checkboxes, then jumps straight to phase 3 â€” the screen where the placement
+    /// three phase-3 checkboxes, then jumps straight to phase 3 — the screen where the placement
     /// actually lives. Phases 1 and 2 remain reachable with BACK, so changing the song itself is
     /// still possible; this only decides where the user LANDS.
     ///
@@ -121,6 +125,21 @@ public partial class MusicWizardWindow : Window
         set => SetValue(MusicSearchTextProperty, value);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // LIST_02 — THE LENGTH COLUMN FOLLOWS THE NAMES, THE NAMES DO NOT FOLLOW THE WINDOW.
+    //
+    // The name cell used to be a "*" column, so it swallowed every spare pixel and shoved the
+    // length against the far right edge — a hand-span of nothing between a song and its own
+    // duration on a 1300px-wide window, and the last digit clipped by the scrollbar on top of it.
+    //
+    // The name cell is now an explicit width, measured once from the LONGEST title actually in the
+    // folder plus a 50px gap. Every row therefore shares one left-aligned block of names with the
+    // lengths packed immediately after the longest of them — close enough to read across, and
+    // identical on every row so the eye has a straight edge to follow.
+    //
+    // Measured, not guessed: a title's pixel width depends on the font scale the user chose in
+    // Settings, so a hard-coded number would clip at Large and waste space at Small.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     public static readonly Avalonia.StyledProperty<double> TrackNameColumnWidthProperty =
         Avalonia.AvaloniaProperty.Register<MusicWizardWindow, double>(nameof(TrackNameColumnWidth), 320.0);
 
@@ -131,10 +150,10 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// LIST_03 â€” the RECENT pin cell's width, measured so it is the same on every row.
+    /// LIST_03 — the RECENT pin cell's width, measured so it is the same on every row.
     ///
     /// It was an Auto column holding either "RECENT" or an empty string, so it was ~40px wide on
-    /// pinned rows and 0px on all the others â€” and the name column therefore began at a different
+    /// pinned rows and 0px on all the others — and the name column therefore began at a different
     /// x depending on whether the song happened to be recent. Nobody noticed because most rows are
     /// empty here, but it makes the column headings impossible to align to, and a heading that
     /// does not sit over its column is worse than no heading.
@@ -149,13 +168,13 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// LIST_04 â€” the LENGTH column's width: the word "Length" plus 10px of breathing room on each
+    /// LIST_04 — the LENGTH column's width: the word "Length" plus 10px of breathing room on each
     /// side. It was a flat 72, which on most font scales left the column noticeably wider than
     /// anything in it.
     ///
     /// Floored at the widest duration actually in the list, because a column sized to its HEADING
     /// is only correct while the heading is the longest thing in it. One 1:04:07 track in a folder
-    /// of three-minute songs would otherwise clip â€” which is the exact fault this column was
+    /// of three-minute songs would otherwise clip — which is the exact fault this column was
     /// reported for in the first place, reintroduced from the other direction.
     /// </summary>
     public static readonly Avalonia.StyledProperty<double> TrackLengthColumnWidthProperty =
@@ -167,25 +186,39 @@ public partial class MusicWizardWindow : Window
         set => SetValue(TrackLengthColumnWidthProperty, value);
     }
 
-    /// <summary>LIST_04 â€” 10px each side of the heading word, as specified.</summary>
+    /// <summary>LIST_04 — 10px each side of the heading word, as specified.</summary>
     private const double TrackLengthPaddingPx = 20.0;
 
-    /// <summary>LIST_02 â€” the gap the user asked for between the longest title and the length.</summary>
+    /// <summary>LIST_02 — the gap the user asked for between the longest title and the length.</summary>
     private const double TrackNameGapPx = 50.0;
     private const double TrackNameMinWidthPx = 180.0;
 
     /// <summary>
-    /// LIST_02 â€” measures the widest song title in the list and sizes the name column to it.
+    /// LIST_02 — measures the widest song title in the list and sizes the name column to it.
     ///
     /// Capped against the list's own width so a pathologically long filename cannot push the
-    /// length column off the right-hand edge â€” the very problem this is fixing. Cheap: one
+    /// length column off the right-hand edge — the very problem this is fixing. Cheap: one
     /// FormattedText per track, run only when the list content or the list width changes, never
     /// per row and never per frame.
     /// </summary>
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // LIST_05 — THE TABLE IS NOW A CLOSED BOX.
+    //
+    // The list had a 1px rule under each row (LIST_01) and a 1px rule down the left of the length
+    // column, and nothing else: no top rule above the headings, and no left or right edge anywhere.
+    // So the hairlines started and stopped in mid-air and the whole thing read as a set of loose
+    // underlines rather than a table.
+    //
+    // Closing it needs a WIDTH, because the rows are deliberately left-packed (LIST_04) — a box
+    // stretched to the ListBox would put its right edge a hand-span past the last column. This is
+    // that width: the three measured column widths plus the separator furniture and the row
+    // padding, i.e. exactly where the last column ends. It is recomputed by the same pass that
+    // measures the columns, so the frame can never drift away from its own contents.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     public static readonly Avalonia.StyledProperty<double> TrackTableWidthProperty =
         Avalonia.AvaloniaProperty.Register<MusicWizardWindow, double>(nameof(TrackTableWidth), 501.0);
 
-    /// <summary>LIST_05 â€” outer width of the closed table frame on step 1, in pixels. Includes the
+    /// <summary>LIST_05 — outer width of the closed table frame on step 1, in pixels. Includes the
     /// LIST_07 scrollbar gutter, so the frame encloses the scrollbar instead of the scrollbar
     /// overlapping the last column.</summary>
     public double TrackTableWidth
@@ -195,14 +228,14 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// LIST_05 â€” the row's own geometry, kept in one place so the header strip, the row template
+    /// LIST_05 — the row's own geometry, kept in one place so the header strip, the row template
     /// and the frame around them cannot disagree:
     ///   row Border Padding="5,3"  ->  5 + 5
     ///   separator Border          ->  Margin 10 + 1px rule + Margin 10
     ///   ListBox Padding="2"       ->  2 + 2
     /// </summary>
     /// <summary>
-    /// LIST_07 â€” the gap between the last column and the vertical scrollbar, and the width
+    /// LIST_07 — the gap between the last column and the vertical scrollbar, and the width
     /// reserved for the scrollbar itself. The row template carries the gap as its right Margin;
     /// this constant is what makes the FRAME wide enough to contain the gap, the scrollbar and
     /// the columns, so the scrollbar ends up beside the table content rather than on top of it.
@@ -218,14 +251,18 @@ public partial class MusicWizardWindow : Window
         double resolved = Math.Round(
             TrackPinColumnWidth + TrackNameColumnWidth + TrackLengthColumnWidth + TrackRowFurnitureWidthPx, 0);
 
+        // LIST_06 — same rule as the column widths: no write, no layout invalidation, no loop.
         if (Math.Abs(TrackTableWidth - resolved) > 0.5) TrackTableWidth = resolved;
     }
 
-    /// <summary>LIST_06 â€” guards against a measurement triggering its own re-entry.</summary>
+    /// <summary>LIST_06 — guards against a measurement triggering its own re-entry.</summary>
     private bool _recalculatingTrackColumns;
 
     private void RecalculateTrackNameColumnWidth()
     {
+        // LIST_06 — writing the column widths causes a layout pass, and a layout pass is what
+        // raises the size-changed events that call this. One level of re-entry is all it takes to
+        // turn that into an oscillation, so the whole method is non-reentrant.
         if (_recalculatingTrackColumns) return;
         _recalculatingTrackColumns = true;
         try
@@ -237,6 +274,9 @@ public partial class MusicWizardWindow : Window
                 Avalonia.Media.FontStyle.Normal,
                 Avalonia.Media.FontWeight.SemiBold);
 
+            // LIST_03 — the pin cell is sized for its only non-empty value, plus the 8px gap that
+            // used to be a Margin. Measured for the same reason the name column is: "RECENT" is
+            // wider at the larger Settings font scales.
             var pinTypeface = new Avalonia.Media.Typeface(
                 Avalonia.Media.FontFamily.Default,
                 Avalonia.Media.FontStyle.Normal,
@@ -250,6 +290,7 @@ public partial class MusicWizardWindow : Window
                 Avalonia.Media.Brushes.White);
             TrackPinColumnWidth = Math.Round(pinText.Width + 8.0, 0);
 
+            // LIST_04 — the heading sets the width; the longest value in the list sets the floor.
             var headingText = new Avalonia.Media.FormattedText(
                 "Length",
                 System.Globalization.CultureInfo.CurrentCulture,
@@ -290,28 +331,49 @@ public partial class MusicWizardWindow : Window
 
             double target = widest > 0 ? widest + TrackNameGapPx : TrackNameMinWidthPx;
 
+            // Everything else on the row: the measured pin cell, the two 10px separator margins,
+            // the 1px rule, the 72px length cell, the row padding and a scrollbar. Reserved so the
+            // length can never be pushed out of view.
             double RowFurniturePx = TrackPinColumnWidth + 10 + 1 + 10 + TrackLengthColumnWidth + 10 + 20;
 
+            // ══════════════════════════════════════════════════════════════════════════════
+            // LIST_06 — MEASURE AGAINST THE PANEL, NEVER AGAINST THE LIST.
+            //
+            // This read `listbox.Bounds.Width`. Once LIST_05 put the ListBox inside a frame whose
+            // width came from TrackTableWidth — which is computed FROM TrackNameColumnWidth, which
+            // is what this line produces — the measurement was reading back its own result one
+            // layout pass later. Symptoms: columns visibly pulsing, and a vertical scrollbar whose
+            // thumb was re-laid-out under the pointer every frame, so dragging it jumped the view
+            // back and forth and never scrolled.
+            //
+            // Step1Panel is the step's own Grid. Its width comes from the window and from nothing
+            // this method writes, so it is a fixed point: the loop cannot close through it.
+            // ⚠️ Do not "improve" this back to any control that lives inside the table frame.
+            // ══════════════════════════════════════════════════════════════════════════════
             var step1Panel = this.FindControl<Avalonia.Controls.Grid>("Step1Panel");
             double availableWidth = step1Panel?.Bounds.Width ?? 0;
             double ceiling = availableWidth > RowFurniturePx + TrackNameMinWidthPx
                 ? availableWidth - RowFurniturePx
                 : double.MaxValue;
 
+            // LIST_06 — write only on a real change. An unconditional assignment invalidates
+            // layout even when the value is identical, which keeps the size-changed events (and
+            // therefore this method) firing forever on a list that is not changing at all.
             double resolvedName = Math.Round(Math.Clamp(target, TrackNameMinWidthPx, ceiling), 0);
             if (Math.Abs(TrackNameColumnWidth - resolvedName) > 0.5)
             {
                 TrackNameColumnWidth = resolvedName;
             }
-            RecalculateTrackTableWidth();
+            RecalculateTrackTableWidth();   // LIST_05 — the frame follows the columns it encloses
         }
         catch (Exception ex)
         {
+            // A measurement failure must not empty the list; the registered default still renders.
             RuntimeLog.Swallowed(ex);
         }
         finally
         {
-            _recalculatingTrackColumns = false;
+            _recalculatingTrackColumns = false;   // LIST_06
         }
     }
 
@@ -394,8 +456,12 @@ public partial class MusicWizardWindow : Window
     {
         InitializeComponent();
 
+        // GRIP_01 — the bottom-right resize corner. These windows are borderless, so the OS
+        // draws no resize frame: without this there is nothing to grab and nothing telling the
+        // user the Add Music wizard can be resized at all. One shared implementation — see
+        // Controls/WindowResizeGrip.cs for why it is not per-window code.
         Controls.WindowResizeGrip.Attach(this, "Drag to resize the Add Music wizard");
-        FreeVideoStudio.App.WindowBoundsHelper.Track(this, "MusicWizardBounds", fitDisplayOnFirstRun: true);
+        FreeVideoStudio.App.WindowBoundsHelper.Track(this, "MusicWizardBounds", fitDisplayOnFirstRun: true);   // FIRSTFIT_01
         _playheadTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
         _playheadTimer.Tick += PlayheadTimer_Tick;
         WirePreviewDetach();
@@ -404,7 +470,7 @@ public partial class MusicWizardWindow : Window
         WireHelpButton();
     }
 
-    /// <summary>ISSUE_04 â€” the permanent replay route for this screen's walkthrough.</summary>
+    /// <summary>ISSUE_04 — the permanent replay route for this screen's walkthrough.</summary>
     private void WireHelpButton()
     {
         var help = this.FindControl<Avalonia.Controls.Button>("WizardHelpButton");
@@ -421,7 +487,7 @@ public partial class MusicWizardWindow : Window
         _previewDetach = new PreviewDetachController(
             this,
             PreviewDetachController.MusicWizardKey,
-            "Preview Monitor â€” Add Music Wizard",
+            "Preview Monitor — Add Music Wizard",
             () => WizardVideoHost);
 
         _previewDetach.StateChanged += detached =>
@@ -443,6 +509,14 @@ public partial class MusicWizardWindow : Window
 
     private void PlayheadTimer_Tick(object? sender, EventArgs e)
     {
+        // ══════════════════════════════════════════════════════════════════════════════════
+        // MEME_07 — BEFORE EVERYTHING ELSE ON THIS TICK.
+        //
+        // A cutaway swaps the meme file into phase 3's mpv host, so CurrentTime and Duration stop
+        // describing the gameplay. SyncPhase3VideoPreviewClock would then drive the video clock
+        // from a position on the wrong file, the music would resync to it, and the playhead would
+        // jump. Returning early is what keeps the A/B screen honest.
+        // ══════════════════════════════════════════════════════════════════════════════════
         if (_currentStep == 3 && _phase3Memes.Count > 0 && WizardVideoHost?.IpcClient != null)
             EnsureMemePreviewDirector();
         if (_memePreview != null)
@@ -453,6 +527,8 @@ public partial class MusicWizardWindow : Window
             if (_memePreview.IsActive) return;
         }
 
+        // PREVIEW1_01 — drive the 1-second ease-in. Costs one property write per 33 ms tick, and
+        // only while a fade is actually running.
         if (_previewFadeStartUtc.HasValue) ApplyPreviewMusicVolume();
 
         if (_isPreviewPlaying)
@@ -480,11 +556,11 @@ public partial class MusicWizardWindow : Window
     private string _lastLiveCrop = "";
 
     /// <summary>
-    /// PORTRAIT_01 â€” set by the Main App when Portrait mode is on.
+    /// PORTRAIT_01 — set by the Main App when Portrait mode is on.
     ///
     /// Phase 3 had no idea whether the export would be portrait, so its preview showed the full
-    /// 16:9 frame while the export produced a 2:3 clip. That made the A/B screen â€” the one whose
-    /// entire job is judging the finished result â€” the least truthful preview in the suite.
+    /// 16:9 frame while the export produced a 2:3 clip. That made the A/B screen — the one whose
+    /// entire job is judging the finished result — the least truthful preview in the suite.
     /// </summary>
     public bool IsPortraitPreview { get; set; }
 
@@ -563,16 +639,18 @@ public partial class MusicWizardWindow : Window
         _playheadTimer?.Start();
         SharedInit();
 
+        // EDIT3_01 — resuming has to wait for the window to exist: it writes to sliders and
+        // checkboxes that FindControl cannot reach until the visual tree is up.
         this.Loaded += async (_, _) => await ResumeFromInitialStateAsync();
     }
 
     /// <summary>
-    /// EDIT3_01 â€” REOPENS AN EXISTING MUSIC PLACEMENT AT PHASE 3.
+    /// EDIT3_01 — REOPENS AN EXISTING MUSIC PLACEMENT AT PHASE 3.
     ///
     /// This mirrors, in one place, everything the phase 1 -> 2 -> 3 walk would have set, so the
     /// wizard arrives in exactly the state the user left it in. The order matters:
     ///
-    ///   1. select the track FIRST â€” OnTrackSelected clears the auto-fill queue, so a queue
+    ///   1. select the track FIRST — OnTrackSelected clears the auto-fill queue, so a queue
     ///      restored before it would be wiped;
     ///   2. then the queue, offsets, sliders and checkboxes;
     ///   3. then the phase switch and the phase-3 load, which is what the step-2 branch of
@@ -586,7 +664,7 @@ public partial class MusicWizardWindow : Window
     private async Task ResumeFromInitialStateAsync()
     {
         var state = InitialState;
-        InitialState = null;
+        InitialState = null;   // one-shot: a later Loaded must not re-run this
         if (state == null) return;
         if (string.IsNullOrWhiteSpace(state.MusicFilePath)) return;
 
@@ -626,6 +704,8 @@ public partial class MusicWizardWindow : Window
             _lastConfiguredTrackPath = state.MusicFilePath;
             _lastLoadedTrackPath = null;
 
+            // A multi-song placement was built by Auto-Fill; restore the whole queue, not just
+            // the first track, or applying again would silently drop every song after the first.
             _pendingAutoFillMusicPaths.Clear();
             if (state.MusicFilePaths != null && state.MusicFilePaths.Count > 1)
             {
@@ -649,6 +729,7 @@ public partial class MusicWizardWindow : Window
             if (duckingCheck != null) duckingCheck.IsChecked = state.EnableDucking;
             var carvingCheck = CarvingCheckBoxCtl;
             if (carvingCheck != null) carvingCheck.IsChecked = state.EnableCarving;
+            ApplyMixSwitchesFromSettings();   // DUCKSTRENGTH_01 — Settings OFF still wins on reopen
             var loopCheck = LoopMusicCheckBoxCtl;
             if (loopCheck != null) loopCheck.IsChecked = state.LoopMusic;
 
@@ -656,6 +737,7 @@ public partial class MusicWizardWindow : Window
             DrawTimelineScale();
             UpdatePlayhead();
 
+            // Same transition the step-2 branch of OnNextClicked performs.
             StopPreview();
             CancelPhase3Load();
             _phase3Ready = false;
@@ -672,21 +754,22 @@ public partial class MusicWizardWindow : Window
         }
         catch (Exception ex)
         {
+            // Falling back to phase 1 is a usable outcome; a half-restored phase 3 is not.
             RuntimeLog.Fail("MUSIC_WIZARD", $"Could not reopen the existing music placement, starting from the song list instead: {ex.Message}");
             _currentStep = 1;
             UpdateStepVisibility();
             UpdateNextButtonState();
-            ShowToast("Could not reopen your music setup â€” please pick the song again.");
+            ShowToast("Could not reopen your music setup — please pick the song again.");
         }
     }
 
     /// <summary>
-    /// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    /// CUTS_02 â€” SECTIONS THE SPEED EDITOR DELETED, in absolute source milliseconds.
+    /// ══════════════════════════════════════════════════════════════════════════════
+    /// CUTS_02 — SECTIONS THE SPEED EDITOR DELETED, in absolute source milliseconds.
     ///
     /// This wizard lays music against the length of the FINISHED video. Every duration it works
-    /// from â€” the coverage check, Smart Fit's search window, Fit By End Of Video, the phase-3
-    /// timeline, the result's TimelineEndSeconds â€” comes out of
+    /// from — the coverage check, Smart Fit's search window, Fit By End Of Video, the phase-3
+    /// timeline, the result's TimelineEndSeconds — comes out of
     /// CalculatePhase3EffectiveDurationSeconds, and that was building its OutputTimeline without
     /// the cuts. So a project with two minutes deleted told the wizard the video was two minutes
     /// longer than it will be: the music was stretched to cover footage that no longer exists, and
@@ -697,13 +780,13 @@ public partial class MusicWizardWindow : Window
     /// owns source-to-output time, and let it do the arithmetic.
     ///
     /// Nothing is DRAWN for these. Phase 3's timeline is output time, where a cut is zero seconds
-    /// wide by definition â€” there is no gap to mark, because in the finished video there is none.
-    /// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    /// wide by definition — there is no gap to mark, because in the finished video there is none.
+    /// ══════════════════════════════════════════════════════════════════════════════
     /// </summary>
     private readonly System.Collections.Generic.List<FreeVideoStudio.Core.Media.CutRange> _phase3Cuts = new();
 
     /// <summary>
-    /// MEME_06 â€” memes spliced into the video, in clip-relative source seconds.
+    /// MEME_06 — memes spliced into the video, in clip-relative source seconds.
     ///
     /// Same class of bug as CUTS_03 and TIME_01, from the opposite direction: a cut makes the
     /// finished video SHORTER than this wizard believed, a meme makes it LONGER. Without these the
@@ -712,19 +795,19 @@ public partial class MusicWizardWindow : Window
     /// the total length of every meme.
     ///
     /// Nothing is drawn for them here: phase 3's ruler is output time, where a meme is a stretch of
-    /// foreign footage the music simply plays over (or not â€” see KeepMusicDuringMeme).
+    /// foreign footage the music simply plays over (or not — see KeepMusicDuringMeme).
     /// </summary>
     private readonly System.Collections.Generic.List<FreeVideoStudio.Core.Media.MemePlacement> _phase3Memes = new();
 
     /// <summary>
-    /// MEME_07 â€” plays each meme in the phase-3 A/B preview at the moment it interrupts the
+    /// MEME_07 — plays each meme in the phase-3 A/B preview at the moment it interrupts the
     /// gameplay. This screen's whole job is judging the finished result, so it is the one preview
     /// that must not quietly skip a cutaway the export will make. See
     /// <see cref="Infrastructure.MemePreviewDirector"/> for the approach and the host-tick rule.
     /// </summary>
     private Infrastructure.MemePreviewDirector? _memePreview;
 
-    /// <summary>MEME_07 â€” built lazily, because phase 3's video host is created on demand.</summary>
+    /// <summary>MEME_07 — built lazily, because phase 3's video host is created on demand.</summary>
     private void EnsureMemePreviewDirector()
     {
         if (_memePreview != null) return;
@@ -736,6 +819,9 @@ public partial class MusicWizardWindow : Window
             SetMemeSwapOverlay,
             "MUSIC_WIZARD");
 
+        // The agreed behaviour: the meme's own sound plays, and the music pauses with the gameplay
+        // and carries on afterwards. The music runs in its own audio-only mpv client, which the
+        // tick's early return would otherwise leave playing straight over the meme.
         _memePreview.MemeStarted += () =>
         {
             if (_audioIpcClient != null) _ = _audioIpcClient.SetPropertyAsync("pause", "yes");
@@ -747,7 +833,7 @@ public partial class MusicWizardWindow : Window
         };
     }
 
-    /// <summary>MEME_07 â€” the black-screen notice shown across the two file swaps.</summary>
+    /// <summary>MEME_07 — the black-screen notice shown across the two file swaps.</summary>
     private void SetMemeSwapOverlay(bool visible, string message)
     {
         var overlay = this.FindControl<Avalonia.Controls.Border>("MemeSwapOverlay");
@@ -769,9 +855,9 @@ public partial class MusicWizardWindow : Window
     private void OnGlobalMasterVolumeChanged(int volume)
     {
         if (WizardVideoHost?.IpcClient != null)
-            _ = WizardVideoHost.IpcClient.SetPreviewVolumeAsync(GetPreviewVideoVolume(volume));
+            _ = WizardVideoHost.IpcClient.ApplyPreviewGainAsync(GetPreviewVideoBalance());
         if (_audioIpcClient != null)
-            _ = _audioIpcClient.SetPreviewVolumeAsync(GetPreviewMusicVolume(volume));
+            _ = _audioIpcClient.ApplyPreviewGainAsync(GetPreviewMusicBalance());
     }
 
     private void SharedInit()
@@ -808,6 +894,12 @@ public partial class MusicWizardWindow : Window
         {
             listbox.ItemsSource = AvailableTracks;
 
+            // LIST_02 — a resized window changes the ceiling the name column is clamped against.
+            // LIST_06 — WAS listbox.SizeChanged, WHICH IS THE CONTROL THIS RESIZES.
+            // The list's width now follows TrackTableWidth (LIST_05), so asking it to re-measure
+            // whenever its own size changed was a self-sustaining loop that fought the scrollbar.
+            // Step1Panel only changes size when the WINDOW does, which is the event that genuinely
+            // warrants a re-measure.
             var step1PanelForResize = this.FindControl<Avalonia.Controls.Grid>("Step1Panel");
             if (step1PanelForResize != null)
             {
@@ -893,6 +985,8 @@ public partial class MusicWizardWindow : Window
             };
         }
 
+        ApplyMixSwitchesFromSettings();
+
         var duckingCheck = DuckingCheckBoxCtl;
         if (duckingCheck != null)
         {
@@ -947,9 +1041,11 @@ public partial class MusicWizardWindow : Window
         if (beatSnapBtn != null)
             beatSnapBtn.Click += async (s, e) => await SnapSongStartToBeatAsync(beatSnapBtn);
 
+        // KEYS_01 — tunnel, so it is seen before the song list eats the arrow keys.
         AddHandler(Avalonia.Input.InputElement.KeyDownEvent, OnWizardKeyDown,
                    Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
+        // COVER_01 — the coverage warning on the last screen is now something you can press.
         var problemPanel = this.FindControl<Border>("ProblemFlagsPanel");
         if (problemPanel != null)
         {
@@ -1166,6 +1262,9 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("VideoVolLabel");
 
+                    // SLIDER_06 — the channel name is the tray's own caption now, so the value
+                    // under the fader is just the number. Keeping "Video " here would put the word
+                    // back into the width budget this layout exists to reclaim.
                     if (lbl != null) lbl.Text = $"{videoVolSlider.Value:0}%";
 
                     if (_currentStep == 3)
@@ -1176,7 +1275,7 @@ public partial class MusicWizardWindow : Window
 
                         if (wizardVideoHost?.IpcClient != null)
 
-                            _ = wizardVideoHost.IpcClient.SetPreviewVolumeAsync(GetPreviewVideoVolume());
+                            _ = wizardVideoHost.IpcClient.ApplyPreviewGainAsync(GetPreviewVideoBalance());
 
                         SaveWizardVolumes();
                         UpdateProblemFlags();
@@ -1201,7 +1300,7 @@ public partial class MusicWizardWindow : Window
 
                     var lbl = this.FindControl<TextBlock>("MusicVolLabel");
 
-                    if (lbl != null) lbl.Text = $"{musicVolSlider.Value:0}%";
+                    if (lbl != null) lbl.Text = $"{musicVolSlider.Value:0}%";   // SLIDER_06
 
                     if (_audioIpcClient != null)
 
@@ -1313,9 +1412,9 @@ public partial class MusicWizardWindow : Window
 
             {
 
-                dots[i].Item1!.Background = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brush.Parse("#3f9c6b"));
+                dots[i].Item1!.Background = Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brush.Parse("#3f9c6b"));   // TONE_01
 
-                dots[i].Item2!.Text = "âœ“";
+                dots[i].Item2!.Text = "✓";
 
                 dots[i].Item2!.Foreground = Avalonia.Media.Brushes.White;
 
@@ -1360,6 +1459,7 @@ public partial class MusicWizardWindow : Window
         this.FindControl<Control>("Step2Panel")!.IsVisible = _currentStep == 2;
         this.FindControl<Grid>("Step3Panel")!.IsVisible = _currentStep == 3;
 
+        // COVER_02 — the coverage block appears WHEN IT HAS A JOB, on either app.
         UpdateCoverageHelperVisibility();
 
         var backBtn = this.FindControl<Button>("BackBtn");
@@ -1380,7 +1480,7 @@ public partial class MusicWizardWindow : Window
         UpdateDuckingCompareButton();
         UpdateStepProgress();
         UpdatePreviewControlsState();
-        EnsureStep2WaveformPresent();
+        EnsureStep2WaveformPresent();   // RESUME_01
         
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
@@ -1393,26 +1493,31 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// RESUME_01 â€” raised while ApplyTrackFilterAndSort is churning the bound collection, so the
+    /// RESUME_01 — raised while ApplyTrackFilterAndSort is churning the bound collection, so the
     /// ListBox's own SelectionChanged cannot be mistaken for the user choosing a song.
     /// </summary>
     private bool _suppressTrackSelectionSideEffects;
 
     private void OnTrackSelected(MusicTrackItem? track)
     {
+        // RESUME_01 — a list rebuild is not a selection.
         if (_suppressTrackSelectionSideEffects) return;
 
+        // RESUME_01 — re-selecting the SAME song is not a change either. Without this, a rebuild
+        // that happens to re-highlight the current track still bumps the render version and kills
+        // an in-flight waveform, and still discards the user's scrub position and their answer to
+        // the coverage question below.
         if (track != null && _selectedTrack != null &&
             string.Equals(track.FilePath, _selectedTrack.FilePath, StringComparison.OrdinalIgnoreCase))
         {
-            _selectedTrack = track;
+            _selectedTrack = track;   // adopt the live list item, keep every other piece of state
             return;
         }
 
         _selectedTrack = track;
         System.Threading.Interlocked.Increment(ref _waveformRenderVersion);
-        _phase1UserSeeked = false;
-        _coverageAcceptedKey = null;
+        _phase1UserSeeked = false;              // PREVIEW1_01
+        _coverageAcceptedKey = null;            // COVER_01 — a new song is a new question
         if (_currentStep == 1) ScheduleAutoPreview(track);
         ResetAutoFillQueueState();
         UpdateNextButtonState();
@@ -1599,7 +1704,7 @@ public partial class MusicWizardWindow : Window
         foreach (var track in visible)
             AvailableTracks.Add(track);
 
-        RecalculateTrackNameColumnWidth();
+        RecalculateTrackNameColumnWidth();   // LIST_02 — the visible set decides the widest title
 
         var listbox = MusicListBoxCtl;
         if (listbox != null)
@@ -1612,6 +1717,28 @@ public partial class MusicWizardWindow : Window
             }
             else if (!string.IsNullOrEmpty(selectedPath))
             {
+                // ══════════════════════════════════════════════════════════════════════════
+                // RESUME_01 — CLEAR THE LIST'S SELECTION, NEVER THE WIZARD'S TRACK.
+                //
+                // This used to call OnTrackSelected(null), and that is the whole "reopened with
+                // EDIT MUSIC, went Back to step 2, no waveform and nothing playable" fault.
+                //
+                // Reopening SYNTHESISES a MusicTrackItem when the folder scan has not found the
+                // file (deliberately — see ResumeFromInitialStateAsync). A synthesised track is by
+                // definition NOT in `visible`, so the moment the asynchronous folder scan finished
+                // and re-ran this method, this branch fired and threw the resumed selection away:
+                //   * `_selectedTrack` became null, so PlayBtn/Skip were disabled
+                //     (UpdatePreviewControlsState) and the start marker had nothing to draw;
+                //   * OnTrackSelected bumped `_waveformRenderVersion`, so the waveform render that
+                //     was still in flight failed its own staleness guard, DELETED the PNG it had
+                //     just produced and returned — a blank step 2 with no error anywhere.
+                //
+                // A list rebuild is not a user decision. It happens on a search keystroke, a sort
+                // change and every folder rescan. The ONLY thing it may do is drop the highlight
+                // in the list; what the wizard is configured to use is not its business.
+                // ⚠️ Do not "tidy" this back into a single assignment. Only a real user pick — the
+                // SelectionChanged handler on an actual click — may change `_selectedTrack`.
+                // ══════════════════════════════════════════════════════════════════════════
                 _suppressTrackSelectionSideEffects = true;
                 try { listbox.SelectedItem = null; }
                 finally { _suppressTrackSelectionSideEffects = false; }
@@ -1644,6 +1771,9 @@ public partial class MusicWizardWindow : Window
                 .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
         };
     }
+// TRACKSEARCH_01 — TrackMatchesSearch moved verbatim; see the extracted type.
+// TRACKSEARCH_01 — NormalizeSearchQuery moved verbatim; see the extracted type.
+// TRACKSEARCH_01 — ContainsIgnoreCase moved verbatim; see the extracted type.
 
     private void UpdateMusicResultCount()
     {
@@ -1900,7 +2030,6 @@ public partial class MusicWizardWindow : Window
 
         _songStartSeconds = Math.Clamp(startSeconds, 0, Math.Max(0, _trackDuration - 0.01));
 
-        if (_selectedTrack?.FilePath is string movedPath) _musicSegmentLufs.Remove(movedPath);
         ResetAutoFillQueueState();
         _previewCurrentOffset = _songStartSeconds;
 
@@ -1968,7 +2097,7 @@ public partial class MusicWizardWindow : Window
         catch (OperationCanceledException swallowed8)
         {
             SetSmartFitStatus("Beat scan timed out.", isWarning: true);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed8);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed8);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -2009,7 +2138,7 @@ public partial class MusicWizardWindow : Window
 
             ApplySongStartSeconds(smartStart, $"Smart Fit picked {FormatSeconds(smartStart)}.");
 
-            if (GetQueuedMusicCoverageSeconds() < videoDuration - 0.5)
+            if (GetQueuedMusicCoverageSeconds() < videoDuration - 0.5)   // COVER_01 — both modes
                 BuildAutoFillQueue();
 
             UpdateDuckingCompareButton();
@@ -2019,7 +2148,7 @@ public partial class MusicWizardWindow : Window
         catch (OperationCanceledException swallowed5)
         {
             SetSmartFitStatus("Smart Fit scan timed out.", isWarning: true);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed5);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -2031,6 +2160,14 @@ public partial class MusicWizardWindow : Window
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // ANALYSIS_01 — ONE DECODE, FOUR FEATURES.
+    //
+    // Snap To Beat, Smart Fit, Fit By End Of Video and the phase-1 auto-preview all need the same
+    // thing: the song's loudness over time. Each was (or would have been) spawning its own ffmpeg
+    // and decoding the whole file again — several seconds of work, repeated, for a result that
+    // cannot change. Cached by path for the life of the window.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     private readonly System.Collections.Generic.Dictionary<string, AudioEnergyAnalysis> _energyCache =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -2044,16 +2181,36 @@ public partial class MusicWizardWindow : Window
         return analysis;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // COVER_01 — "YOUR SONG IS SHORTER THAN YOUR VIDEO" IS NOW ASKED, NOT MURMURED.
+    //
+    // What used to happen: you picked a 2-minute song for a 5-minute video, sailed through the
+    // wizard, and the only mention of it was a grey sentence on the last screen —
+    // "Music ends 3:00 before the video ends." — sitting next to no control that could fix it,
+    // because the loop switch and the auto-fill button were hidden unless you had come in from the
+    // Video Merger. A warning you cannot act on is just an accusation.
+    //
+    // Now the wizard measures the gap and asks, at the two moments the answer matters: when you
+    // arrive at the start-point screen, and again when you commit. Three ways out, and all three
+    // are real:
+    //   ADD MORE SONGS   queues further tracks until the video is covered (the old merger-only
+    //                    Auto-Fill, now available everywhere).
+    //   CHANGE START     closes the question and leaves you on the start-point screen, where
+    //                    dragging the start earlier may cover the video on its own.
+    //   PROCEED ANYWAY   accept the silence. Recorded, so it is not asked again for this choice.
+    //
+    // Closing the dialog (X or Escape) means CHANGE START — the safe reading.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     private enum MusicCoverageChoice { ChangeStart, AddMoreSongs, ProceedAnyway }
 
-    /// <summary>COVER_01 â€” the track+start the user last said "proceed anyway" to, so it is asked once.</summary>
+    /// <summary>COVER_01 — the track+start the user last said "proceed anyway" to, so it is asked once.</summary>
     private string? _coverageAcceptedKey;
 
     private string BuildCoverageKey()
         => $"{_selectedTrack?.FilePath ?? ""}|{_songStartSeconds:F2}|{_pendingAutoFillMusicPaths.Count}";
 
     /// <summary>
-    /// COVER_01 â€” how many seconds of the finished video would have no music, or 0 when covered.
+    /// COVER_01 — how many seconds of the finished video would have no music, or 0 when covered.
     /// Looping covers everything by definition, so it always returns 0.
     /// </summary>
     private double GetMusicShortfallSeconds()
@@ -2072,7 +2229,7 @@ public partial class MusicWizardWindow : Window
         else
         {
             double trackLength = _trackDuration > 0 ? _trackDuration : _selectedTrack.DurationSec;
-            if (trackLength <= 0.01) return 0.0;
+            if (trackLength <= 0.01) return 0.0;   // length not known yet — do not guess
             covered = Math.Max(0.0, trackLength - _songStartSeconds);
         }
 
@@ -2081,7 +2238,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// COVER_01 â€” asks the coverage question. Returns TRUE when the caller may carry on, FALSE
+    /// COVER_01 — asks the coverage question. Returns TRUE when the caller may carry on, FALSE
     /// when the user asked to stay and change the start point.
     /// </summary>
     private async Task<bool> WarnIfMusicTooShortAsync(bool askEvenIfAlreadyAccepted)
@@ -2110,6 +2267,8 @@ public partial class MusicWizardWindow : Window
         dlg.SetTitle("The music will run out before the video does");
         dlg.SetMessage(message);
         dlg.SetButtonText("ADD MORE SONGS", "CHANGE START", "PROCEED ANYWAY");
+        // Green on the option that actually solves it; blue on the one that sends you back to try;
+        // grey on the one that accepts the silence. No red — nothing here destroys anything.
         dlg.SetButtonClasses("Success", "Primary", "Secondary");
 
         try
@@ -2118,6 +2277,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (Exception ex)
         {
+            // A question that cannot be asked must not silently become "proceed".
             RuntimeLog.Fail("MUSIC_WIZARD", $"Coverage prompt failed, staying on this step: {ex.Message}");
             return false;
         }
@@ -2130,16 +2290,18 @@ public partial class MusicWizardWindow : Window
         };
 
         RuntimeLog.Info("MUSIC_WIZARD",
-            $"Coverage gap of {shortfall:F1}s on a {videoDuration:F1}s video â€” user chose {choice}.");
+            $"Coverage gap of {shortfall:F1}s on a {videoDuration:F1}s video — user chose {choice}.");
 
         switch (choice)
         {
             case MusicCoverageChoice.AddMoreSongs:
                 BuildAutoFillQueue();
+                // Auto-Fill may still fall short if the folder has too little music. Say so rather
+                // than pretending it worked, but do not block: the queue IS better than before.
                 double remaining = GetMusicShortfallSeconds();
                 if (remaining > 0.5)
                 {
-                    SetSmartFitStatus($"Still {FormatSeconds(remaining)} short â€” add more songs to your music folder, or tick Loop.", isWarning: true);
+                    SetSmartFitStatus($"Still {FormatSeconds(remaining)} short — add more songs to your music folder, or tick Loop.", isWarning: true);
                     _coverageAcceptedKey = BuildCoverageKey();
                 }
                 return true;
@@ -2153,9 +2315,42 @@ public partial class MusicWizardWindow : Window
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // PREVIEW1_01 — HEARING A SONG BEFORE COMMITTING TO IT.
+    //
+    // Phase 1 was a list of file names with a dead transport bar underneath it: PlayBtn, -30s and
+    // +30s were all disabled unless you had already reached phase 2. So auditioning meant select,
+    // NEXT, wait for an ffprobe and a waveform render, listen, BACK, repeat. Five songs, five
+    // round trips.
+    //
+    // Highlighting a song now just plays it, from the part worth hearing rather than from the
+    // silence at the front, and eases in over a second so it does not detonate in your headphones.
+    // The transport bar works in phase 1 too, and its PLAY button means what it says: from the
+    // beginning, no fade.
+    //
+    // Debounced, because arrowing down a list of two hundred songs must not start two hundred
+    // playbacks or spawn two hundred ffmpeg processes.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // PREVIEW1_02 — THE ANALYSIS CAME OFF THE CRITICAL PATH.
+    //
+    // The first version decoded the whole song through ffmpeg to find its busiest passage, THEN
+    // started playing. Correct, and far too slow to click through a folder with: every new song
+    // cost a full decode before a single note came out, so the list felt frozen.
+    //
+    // Now the sound starts first. A song that has been auditioned before starts exactly on its
+    // best passage, from cache. A song being heard for the first time starts at 40% of its
+    // length — past the intro, in the body of almost any track — and the decode runs in the
+    // BACKGROUND purely to cache the exact point for next time. It deliberately does NOT seek
+    // when it lands: a preview that lurches sideways a second after you clicked is worse than one
+    // that started slightly off the perfect spot.
+    //
+    // The debounce drops to 110 ms — still enough to stop a held arrow key launching a playback
+    // per row, short enough to feel like a click.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     private const double AutoPreviewDebounceMs = 110.0;
 
-    /// <summary>PREVIEW1_02 â€” where a never-heard song starts: past the intro, inside the body.</summary>
+    /// <summary>PREVIEW1_02 — where a never-heard song starts: past the intro, inside the body.</summary>
     private const double AutoPreviewBlindFraction = 0.40;
     private const double PreviewFadeInSeconds = 1.0;
 
@@ -2165,10 +2360,10 @@ public partial class MusicWizardWindow : Window
     private readonly System.Collections.Generic.Dictionary<string, double> _autoPreviewStartCache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>PREVIEW1_01 â€” when the current playback's 1-second ease-in began. Null = no fade.</summary>
+    /// <summary>PREVIEW1_01 — when the current playback's 1-second ease-in began. Null = no fade.</summary>
     private DateTime? _previewFadeStartUtc;
 
-    /// <summary>PREVIEW1_01 â€” true once the user has skipped in phase 1, so PLAY resumes instead of restarting.</summary>
+    /// <summary>PREVIEW1_01 — true once the user has skipped in phase 1, so PLAY resumes instead of restarting.</summary>
     private bool _phase1UserSeeked;
 
     private void ScheduleAutoPreview(MusicTrackItem? track)
@@ -2196,6 +2391,7 @@ public partial class MusicWizardWindow : Window
 
     private void StartAutoPreview(MusicTrackItem track)
     {
+        // Nothing here awaits anything: the sound has to start on this turn of the message loop.
         double startAt;
         bool knownExactly = _autoPreviewStartCache.TryGetValue(track.FilePath, out startAt);
         if (!knownExactly)
@@ -2212,7 +2408,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// PREVIEW1_02 â€” decodes the song in the background and remembers its best passage, so the
+    /// PREVIEW1_02 — decodes the song in the background and remembers its best passage, so the
     /// NEXT time this track is highlighted it starts exactly there. Never touches playback: the
     /// preview the user is already listening to is left where it is.
     /// </summary>
@@ -2232,7 +2428,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (OperationCanceledException swallowed3)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed3);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -2246,7 +2442,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// PREVIEW1_01 â€” the "play me the good bit" point.
+    /// PREVIEW1_01 — the "play me the good bit" point.
     ///
     /// Not the exact middle: the middle of a song is often a breakdown or a quiet bridge, and the
     /// front of one is usually an intro that tells you nothing. This takes the loudest sustained
@@ -2262,6 +2458,7 @@ public partial class MusicWizardWindow : Window
         const double windowSeconds = 12.0;
         int windowBuckets = Math.Max(1, (int)Math.Round(windowSeconds / bucket));
 
+        // Middle 70%: skip the intro and stop well before the outro.
         int firstBucket = (int)Math.Floor((length * 0.15) / bucket);
         int lastBucket = (int)Math.Floor((length * 0.85) / bucket) - windowBuckets;
         firstBucket = Math.Clamp(firstBucket, 0, Math.Max(0, analysis.Energy.Length - 1));
@@ -2292,7 +2489,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// PREVIEW1_01 â€” the ease-in multiplier, 0 to 1. Applied inside GetPreviewMusicVolume so every
+    /// PREVIEW1_01 — the ease-in multiplier, 0 to 1. Applied inside GetPreviewMusicVolume so every
     /// path that sets the preview volume respects it without knowing it exists.
     /// </summary>
     private double CurrentPreviewFadeFactor()
@@ -2305,13 +2502,26 @@ public partial class MusicWizardWindow : Window
             return 1.0;
         }
         double t = Math.Clamp(elapsed / PreviewFadeInSeconds, 0.0, 1.0);
-        return t * t;
+        return t * t;   // ease-in: quiet for longer, then up — kinder than a straight ramp
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // FITEND_01 — LANDING THE END OF THE VIDEO ON THE END OF THE SONG.
+    //
+    // Smart Fit works forwards: find a strong section and start there. That leaves the ending to
+    // chance, and a video that stops mid-verse feels unfinished however good the opening was. This
+    // works backwards from where the song ACTUALLY finishes.
+    //
+    // "Actually finishes" is the whole trick. Subtracting the video length from the file's last
+    // second lands you in the fade-out tail or the dead air a lot of mp3s carry — the video ends on
+    // nothing. So the song's own average loudness is measured, and the ending is taken to be the
+    // last moment the track was still at a third of that average. Below a third is a tail, not
+    // music. A small cushion is kept after it so the final hit is not clipped off.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     private const double FitByEndTailCushionSeconds = 0.35;
 
     /// <summary>
-    /// FITEND_01 â€” the song-start that makes the video finish on the song's last musical moment,
+    /// FITEND_01 — the song-start that makes the video finish on the song's last musical moment,
     /// or null when the song is too short to reach back that far.
     /// </summary>
     private double? FindFitByEndStart(AudioEnergyAnalysis analysis, double videoDurationSeconds, out double musicEndSeconds)
@@ -2323,6 +2533,8 @@ public partial class MusicWizardWindow : Window
         double trackDuration = _trackDuration > 0 ? _trackDuration : analysis.DurationSeconds;
         if (trackDuration <= 0.01) return null;
 
+        // Average over the audible material only, so a long silent tail cannot drag the average
+        // down and make the threshold meaningless.
         double sum = 0;
         int counted = 0;
         foreach (double value in analysis.Energy)
@@ -2346,8 +2558,10 @@ public partial class MusicWizardWindow : Window
         musicEndSeconds = Math.Clamp((endBucket + 1) * bucket + FitByEndTailCushionSeconds, 0.0, trackDuration);
 
         double start = musicEndSeconds - videoDurationSeconds;
-        if (start < 0.0) return null;
+        if (start < 0.0) return null;   // song is shorter than the video — caller explains why
 
+        // Snap onto a beat, but only ever EARLIER: snapping later would push the song's ending past
+        // the end of the video, which is the exact cut-off this feature exists to avoid.
         double? onBeat = null;
         double bestDistance = double.MaxValue;
         foreach (double peak in analysis.PeakTimesSeconds)
@@ -2396,14 +2610,14 @@ public partial class MusicWizardWindow : Window
 
             ApplySongStartSeconds(
                 start.Value,
-                $"Set to {FormatSeconds(start.Value)} â€” the song now finishes at {FormatSeconds(musicEnd)}, right as the video ends.");
+                $"Set to {FormatSeconds(start.Value)} — the song now finishes at {FormatSeconds(musicEnd)}, right as the video ends.");
             RuntimeLog.Info("MUSIC_WIZARD",
                 $"Fit By End Of Video: music ends at {musicEnd:F2}s, video is {videoDuration:F2}s, song start set to {start.Value:F2}s.");
         }
         catch (OperationCanceledException swallowed2)
         {
             SetSmartFitStatus("Scan timed out.", isWarning: true);
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed2);   // FAULTTIER_02 — no failure is silent.
         }
         finally
         {
@@ -2414,6 +2628,12 @@ public partial class MusicWizardWindow : Window
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // KEYS_01 — the wizard had NO keyboard handling of any kind. Space is the universal
+    // play/pause and this screen is about listening, so it is the one key worth having. Text
+    // boxes keep their space bar, obviously. Arrows nudge the song start on the step where a
+    // song start exists, and scrub on the step where there is a video to scrub.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     private void OnWizardKeyDown(object? sender, KeyEventArgs e)
     {
         var focused = Avalonia.Controls.TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
@@ -2428,6 +2648,7 @@ public partial class MusicWizardWindow : Window
 
         if (e.Key != Key.Left && e.Key != Key.Right) return;
 
+        // Phase 1 belongs to the song list — arrows move the selection there.
         if (_currentStep == 1) return;
 
         double direction = e.Key == Key.Right ? 1.0 : -1.0;
@@ -2625,7 +2846,7 @@ public partial class MusicWizardWindow : Window
 
             var recentArray = new System.Text.Json.Nodes.JsonArray();
             foreach (string path in orderedPaths)
-                recentArray.AddNode(System.Text.Json.Nodes.JsonValue.Create(path));
+                recentArray.AddNode(System.Text.Json.Nodes.JsonValue.Create(path));   // AOTSAFETY_02
 
             new FreeVideoStudio.Core.Ipc.StateTransferStore(_paths)
                 .UpdatePropertiesSync(new System.Text.Json.Nodes.JsonObject
@@ -2672,19 +2893,6 @@ public partial class MusicWizardWindow : Window
         UpdateCoverageBar();
         UpdateProblemFlags();
         e.Handled = true;
-    }
-
-    private void SeekPhase3Relative(double videoRelativeSec)
-    {
-        double duration = GetPhase3VideoDurationSeconds();
-        videoRelativeSec = Math.Clamp(videoRelativeSec, 0.0, duration);
-
-        bool wasPlaying = _isPreviewPlaying;
-        StopPreview();
-        _previewCurrentOffset = _songStartSeconds + videoRelativeSec;
-        SeekPhase3VideoHost(videoRelativeSec, forcePause: !wasPlaying);
-        if (wasPlaying) StartPreviewInternal(_previewCurrentOffset);
-        else UpdatePlayhead();
     }
 
     private void SeekPhase3VideoHost(double outputRelativeSec, bool forcePause)
@@ -2786,7 +2994,7 @@ public partial class MusicWizardWindow : Window
 
             {
 
-                ShowToast("âš  Please select a music track first!");
+                ShowToast("⚠ Please select a music track first!");
 
                 return;
             }
@@ -2825,6 +3033,19 @@ public partial class MusicWizardWindow : Window
 
             _currentStep = 2;
 
+            // ══════════════════════════════════════════════════════════════════════════
+            // COVER_01 — ASK AS SOON AS THE ANSWER IS KNOWABLE.
+            //
+            // The song's real length is probed a few lines above, and the video's finished length
+            // (speed changes and freezes included) comes from GetPhase3VideoDurationSeconds, which
+            // needs nothing from phase 3. So this is the earliest point at which "your song is too
+            // short" is a fact rather than a guess — and it is the screen where all three answers
+            // live, so the user is standing in front of the controls when asked.
+            //
+            // Deliberately fired AFTER the step switch and NOT awaited before it: the panels must
+            // already be visible behind the dialog, or the user is answering a question about a
+            // screen they have not seen.
+            // ══════════════════════════════════════════════════════════════════════════
             UpdateStepVisibility();
             UpdateNextButtonState();
             UpdatePreviewControlsState();
@@ -2834,6 +3055,8 @@ public partial class MusicWizardWindow : Window
 
         else if (_currentStep == 2)
         {
+            // COVER_01 — the commit. Asked every time, because this is the last chance: FALSE means
+            // the user chose CHANGE START, so stay on this step rather than walking them forward.
             if (!await WarnIfMusicTooShortAsync(askEvenIfAlreadyAccepted: false))
                 return;
 
@@ -2860,7 +3083,8 @@ public partial class MusicWizardWindow : Window
 
             var duckingCheck = DuckingCheckBoxCtl;
             var carvingCheck = CarvingCheckBoxCtl;
-            bool audioProtection = Infrastructure.SettingsManager.Instance.Defaults.AudioProtection;
+            // DUCKSTRENGTH_01 — Settings OFF wins over this window's per-video checkbox.
+            var mixDefaults = Infrastructure.SettingsManager.Instance.Defaults;
             var videoVolSlider = VideoVolSliderCtl;
             var musicVolSlider = MusicVolSliderCtl;
             double timelineStartSec = _trimStartMs / 1000.0;
@@ -2877,8 +3101,8 @@ public partial class MusicWizardWindow : Window
                 OffsetSeconds = _songStartSeconds,
                 TimelineStartSeconds = timelineStartSec,
                 TimelineEndSeconds = timelineEndSec,
-                EnableDucking = audioProtection && (duckingCheck?.IsChecked ?? true),
-                EnableCarving = audioProtection && (carvingCheck?.IsChecked ?? true),
+                EnableDucking = mixDefaults.DuckingEnabled && (duckingCheck?.IsChecked ?? true),
+                EnableCarving = mixDefaults.CarvingEnabled && (carvingCheck?.IsChecked ?? true),
                 VideoVolume = (videoVolSlider?.Value ?? 100.0) / 100.0,
                 MusicVolume = (musicVolSlider?.Value ?? 100.0) / 100.0,
                 MusicDurationSeconds = _trackDuration,
@@ -2920,7 +3144,7 @@ public partial class MusicWizardWindow : Window
     /// <summary>
     /// LANES_01: delegates to the shared <see cref="ThumbnailStripGenerator"/>. The ~70 lines of
     /// FFmpeg tiling that used to live here were lifted out when the Granular Speed Editor needed
-    /// the identical strip â€” two copies would have been free to drift on frame count, scaling and
+    /// the identical strip — two copies would have been free to drift on frame count, scaling and
     /// temp-file cleanup. Signature unchanged so every phase-3 call site is untouched.
     /// </summary>
     private async Task<string?> GenerateThumbnailsStripAsync(string ffmpegPath, string videoPath, double startSec, double durationSec, CancellationToken cancellationToken, int frames = ThumbnailStripGenerator.DefaultFrames)
@@ -3180,12 +3404,38 @@ public partial class MusicWizardWindow : Window
 
                 var videoVolSlider = VideoVolSliderCtl;
                 if (videoVolSlider != null)
-                    await wizardVideoHost.IpcClient.SetPreviewVolumeAsync(GetPreviewVideoVolume());
+                    await wizardVideoHost.IpcClient.ApplyPreviewGainAsync(GetPreviewVideoBalance());
             }
             SetLoadingOverlay("Phase3VideoLoadingOverlay", false);
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            // ══════════════════════════════════════════════════════════════════════════════════
+            // P3ASYNC_01 — THE TIMELINE IS LIVE BEFORE THE ARTWORK IS.
+            //
+            // This method used to be one sequential chain: load the player, `await Task.WhenAll`
+            // on every filmstrip, then await the waveform render, and ONLY THEN set _phase3Ready.
+            // _phase3Ready gates UpdatePreviewControlsState and UpdateNextButtonState, so the
+            // entire screen — play, scrub, NEXT — sat dead for as long as ffmpeg took to decode
+            // frames out of a long video. On a several-minute clip that is tens of seconds of a
+            // screen that looks broken, to produce two strips of decoration.
+            //
+            // Nothing below this point is needed to PLAY. The ruler comes from the OutputTimeline,
+            // the caret comes from the player clock, and both exist the moment mpv has the file.
+            // So the screen is declared ready HERE, and the two decoders are detached onto their
+            // own workers. ThumbnailStripGenerator.StreamAsync already publishes frames as they
+            // arrive (onReady/onFrame), so the filmstrip fills in left-to-right underneath a
+            // timeline the user is already scrubbing.
+            //
+            // ⚠️ EACH WORKER RE-CHECKS `loadVersion != _phase3LoadVersion` BEFORE TOUCHING THE UI.
+            // They now outlive this method, so leaving phase 3 (or re-entering it, which bumps the
+            // version) can land a strip from a previous selection into the current lanes. That
+            // check, and the shared cancellationToken, are the whole safety story — do not drop
+            // either when editing these workers.
+            //
+            // ⚠️ The two loading overlays are IsHitTestVisible="False" and are cleared by the
+            // worker that owns each one, NOT by this method's finally block.
+            // ══════════════════════════════════════════════════════════════════════════════════
             if (loadVersion != _phase3LoadVersion || _currentStep != 3) return;
 
             _phase3Ready = true;
@@ -3203,7 +3453,7 @@ public partial class MusicWizardWindow : Window
         catch (OperationCanceledException swallowed9)
         {
             SetPhase3Status("");
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed9);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed9);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -3217,6 +3467,11 @@ public partial class MusicWizardWindow : Window
         {
             SetLoadingOverlay("Phase3VideoLoadingOverlay", false);
 
+            // P3ASYNC_01 — the thumbnail and waveform overlays are NOT cleared here any more.
+            // Those two jobs now outlive this method, and clearing their spinners on the way out
+            // would advertise "done" while ffmpeg is still decoding. Each worker clears its own in
+            // its own finally. The one exception is an abandoned load: if this run is already
+            // stale, nothing is coming to clear them, so they are taken down here.
             if (loadVersion != _phase3LoadVersion)
             {
                 SetLoadingOverlay("Phase3ThumbLoadingOverlay", false);
@@ -3230,11 +3485,15 @@ public partial class MusicWizardWindow : Window
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // P3ASYNC_01 — the two detached lane decoders. Held only so the window can wait for them on
+    // teardown; nothing awaits them on the interface path.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     private Task _phase3ThumbTask = Task.CompletedTask;
     private Task _phase3WaveTask = Task.CompletedTask;
 
     /// <summary>
-    /// P3ASYNC_01 â€” fills the film lane in the background. The body is unchanged from when it ran
+    /// P3ASYNC_01 — fills the film lane in the background. The body is unchanged from when it ran
     /// inline; what changed is that nothing waits for it, so the timeline is scrubbable while it
     /// runs and each strip appears as its own decode finishes.
     /// </summary>
@@ -3262,10 +3521,10 @@ public partial class MusicWizardWindow : Window
                     else
                     {
                         var prober = new FreeVideoStudio.Core.Media.MediaProber(ffmpeg.Replace("ffmpeg.exe", "ffprobe.exe"), v);
-                        try { dur = MergerWindowDuration(videoDurs.Count) ?? await prober.GetDurationAsync(); } catch (System.Exception swallowed7)
+                        try { dur = MergerWindowDuration(videoDurs.Count) ?? await prober.GetDurationAsync(); } catch (System.Exception swallowed7)   // SCRAPER_02
                         {
                             dur = 10.0;
-                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);
+                            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed7);   // FAULTTIER_02 — no failure is silent.
                         }
                     }
                     videoDurs.Add(dur);
@@ -3298,7 +3557,7 @@ public partial class MusicWizardWindow : Window
                 {
                     double vDur = videoDurs[i];
                     int framesCount = Math.Max(1, (int)Math.Round(15 * (vDur / totalDur)));
-                    double startOffset = (_isMergerMode || i > 0) ? MergerWindowStart(i) : (_trimStartMs / 1000.0);
+                    double startOffset = (_isMergerMode || i > 0) ? MergerWindowStart(i) : (_trimStartMs / 1000.0);   // SCRAPER_02
                     string videoForStrip = videosToThumb[i];
                     var target = laneImages[i];
 
@@ -3346,6 +3605,10 @@ public partial class MusicWizardWindow : Window
 
                 await Task.WhenAll(stripTasks);
 
+                // P3ASYNC_01 — _phase3ClipDurationsSec is filled above and is what
+                // DrawPhase3MergerOverlays uses to place the clip-boundary marks. The ruler was
+                // drawn before this worker started (that is the point), so in merger mode the
+                // boundaries have to be laid in once the durations are actually known.
                 if (loadVersion == _phase3LoadVersion && _currentStep == 3)
                 {
                     DrawPhase3TimelineScale();
@@ -3354,7 +3617,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (OperationCanceledException swallowed11)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed11);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed11);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -3370,7 +3633,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// P3ASYNC_01 â€” renders the music waveform lane in the background. Same body as before, just
+    /// P3ASYNC_01 — renders the music waveform lane in the background. Same body as before, just
     /// no longer standing between the user and the play button.
     /// </summary>
     private async Task RunPhase3WaveformLaneAsync(
@@ -3416,7 +3679,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (OperationCanceledException swallowed6)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed6);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -3440,7 +3703,7 @@ public partial class MusicWizardWindow : Window
         _phase3Ready = false;
     }
 
-    /// <summary>MPVSHUTDOWN_01 â€” two-phase awaitable phase-3 preview teardown; each resource freed once.</summary>
+    /// <summary>MPVSHUTDOWN_01 — two-phase awaitable phase-3 preview teardown; each resource freed once.</summary>
     private async Task DisposePhase3VideoHostAsync()
     {
         var border = VideoHostBorderCtl;
@@ -3490,12 +3753,14 @@ public partial class MusicWizardWindow : Window
     /// </summary>
     private double CalculatePhase3EffectiveDurationSeconds(double sourceDurationSec)
     {
+        // CUTS_02 — the last argument is the fix. Without it every deleted second is still counted
+        // as video the music has to cover.
         var timeline = FreeVideoStudio.Core.Media.OutputTimeline.Create(
             sourceDurationSec * 1000.0,
             _phase3SpeedSegments,
             _phase3BaseSpeed,
             _trimStartMs,
-            FreeVideoStudio.Core.Media.MemePlacement.ToInsertions(_phase3Memes),
+            FreeVideoStudio.Core.Media.MemePlacement.ToInsertions(_phase3Memes),   // MEME_06
             FreeVideoStudio.Core.Media.CutRange.ToClipRelative(_phase3Cuts, _trimStartMs));
         return Math.Max(0.001, timeline.TotalOutputSeconds);
     }
@@ -3513,20 +3778,20 @@ public partial class MusicWizardWindow : Window
     /// </para>
     /// </summary>
     /// <summary>
-    /// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    /// CUTS_03 â€” WHY PHASE 3 NEEDS NO SKIP LOOP OF ITS OWN.
+    /// ══════════════════════════════════════════════════════════════════════════════
+    /// CUTS_03 — WHY PHASE 3 NEEDS NO SKIP LOOP OF ITS OWN.
     ///
     /// This preview is driven from an OUTPUT clock: the wizard counts finished-video seconds and
     /// asks this method where in the source footage that moment lives, then seeks mpv there. A cut
     /// occupies zero output time, so once the timeline knows about it, no output second can ever
-    /// map into deleted footage â€” the deleted span is simply never a possible answer, and the
+    /// map into deleted footage — the deleted span is simply never a possible answer, and the
     /// preview steps over it on its own.
     ///
     /// Which is exactly why the missing argument here was so quiet: the timeline was built WITHOUT
     /// the cuts, so it still believed every deleted second was playable, mapped output seconds
     /// into them, and told mpv to go and show the user footage that will not be in their video.
     /// The fix is the cut list, not a watchdog.
-    /// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    /// ══════════════════════════════════════════════════════════════════════════════
     /// </summary>
     private double MapPhase3OutputToSourceRelativeSeconds(double outputRelativeSec)
     {
@@ -3536,7 +3801,7 @@ public partial class MusicWizardWindow : Window
             _phase3SpeedSegments,
             _phase3BaseSpeed,
             _trimStartMs,
-            FreeVideoStudio.Core.Media.MemePlacement.ToInsertions(_phase3Memes),
+            FreeVideoStudio.Core.Media.MemePlacement.ToInsertions(_phase3Memes),   // MEME_06
             FreeVideoStudio.Core.Media.CutRange.ToClipRelative(_phase3Cuts, _trimStartMs));
         double clamped = Math.Clamp(outputRelativeSec, 0, GetPhase3VideoDurationSeconds());
         return timeline.OutputToSourceRelative(clamped);
@@ -3640,6 +3905,10 @@ public partial class MusicWizardWindow : Window
 
     private void UpdateCoverageBar()
     {
+        // COVER_02 — the `if (!_isMergerMode) return;` guard is gone. COVER_01 showed this panel on
+        // both apps but left this method refusing to fill it, so a Main App user with a short song
+        // got the block with a permanently empty bar and a 0% figure. Either it is shown and it
+        // works, or it is not shown at all — which is what UpdateCoverageHelperVisibility decides.
         double videoDuration = GetPhase3VideoDurationSeconds();
         double audibleMusic = GetQueuedMusicCoverageSeconds();
 
@@ -3653,6 +3922,7 @@ public partial class MusicWizardWindow : Window
         {
             double panelWidth = this.FindControl<Avalonia.Controls.Control>("MultiSongHelperPanel")?.Bounds.Width ?? 200;
             fill.Width = Math.Max(0, panelWidth * (coveragePercent / 100.0) - 24);
+            // TONE_01: all three coverage states come off tokens now.
             fill.Background = coveragePercent >= 99.9
                 ? Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brush.Parse("#3f9c6b"))
                 : coveragePercent >= 50
@@ -3664,7 +3934,7 @@ public partial class MusicWizardWindow : Window
         if (pctText != null)
         {
             pctText.Text = $"{coveragePercent:0}%";
-            pctText.Foreground = coveragePercent >= 99.9
+            pctText.Foreground = coveragePercent >= 99.9   // TONE_01
                 ? Infrastructure.ThemeResources.Brush(this, "AppSuccessBrush", Avalonia.Media.Brush.Parse("#3f9c6b"))
                 : Infrastructure.ThemeResources.Brush(this, "AppWarningBrush", Avalonia.Media.Brush.Parse("#facc15"));
         }
@@ -3693,6 +3963,8 @@ public partial class MusicWizardWindow : Window
             }
         }
 
+        // COVER_02 — every path that can change coverage already calls this method, so hanging the
+        // visibility decision off the end of it means no caller has to remember a second step.
         UpdateCoverageHelperVisibility();
     }
 
@@ -3705,6 +3977,20 @@ public partial class MusicWizardWindow : Window
         return Math.Min(GetPhase3VideoDurationSeconds(), segments[^1].TimelineEndSec);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // COVER_02 — THE COVERAGE BLOCK IS CONDITIONAL, NOT MODE-GATED.
+    //
+    // It started life gated on `_isMergerMode`, which hid it from the Main App even when the song
+    // ran out — a warning with no reachable cure. COVER_01 showed it on both apps, which fixed
+    // that and created the opposite nuisance: a three-minute song on a forty-second trim got a
+    // coverage bar, a loop switch and an auto-fill button for a problem it does not have, and the
+    // extra height pushed the rest of the step around.
+    //
+    // The rule is simply "is there anything to answer": the music falls short, OR the user has
+    // already engaged one of these controls (loop ticked, queue built) and must be able to reach
+    // it again to undo that. The Video Merger always qualifies — a merge is a sequence of clips
+    // and coverage is the normal question there, not the exception.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     private void UpdateCoverageHelperVisibility()
     {
         var helperPanel = this.FindControl<Avalonia.Controls.StackPanel>("MultiSongHelperPanel");
@@ -3722,6 +4008,24 @@ public partial class MusicWizardWindow : Window
         EnsureCoverageHeadroom(visible);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // COVER_03 — HEADROOM FOR THE COVERAGE BLOCK.
+    //
+    // With the block on, step 2 needs about 875px of window to show the waveform, the start-point
+    // controls, the two protection checkboxes, the coverage bar, the loop switch, the auto-fill
+    // row AND the queue list without the last of them falling off the bottom. The window's own
+    // MinHeight is 730, which is right when the block is absent.
+    //
+    // 875 was measured on a 1920x1080 display. Avalonia lays out in DEVICE-INDEPENDENT pixels, so
+    // a 4K or 8K panel at 200%/300% scaling needs no adjustment — the number already means the
+    // same physical size there, and multiplying by the DPI would make the window absurd. What DOES
+    // change the height needed is the Settings font scale, because every row in that block grows
+    // with it, so that is what the figure is multiplied by.
+    //
+    // Then it is clamped to the screen actually in use: raising MinHeight above a laptop's working
+    // area produces a window whose bottom edge, and therefore its NEXT button, cannot be reached.
+    // A slightly cramped panel is recoverable by scrolling; an unreachable button is not.
+    // ══════════════════════════════════════════════════════════════════════════════════════
     private const double CoverageHelperDesignHeight = 875.0;
     private const double WizardBaseMinHeight = 730.0;
 
@@ -3738,6 +4042,8 @@ public partial class MusicWizardWindow : Window
                 var screen = Screens?.ScreenFromWindow(this) ?? Screens?.Primary;
                 if (screen != null)
                 {
+                    // WorkingArea is in physical pixels; Scaling converts it to the layout units
+                    // MinHeight is expressed in. 60 leaves room for the taskbar and the frame.
                     double usable = (screen.WorkingArea.Height / Math.Max(0.1, screen.Scaling)) - 60.0;
                     if (usable > WizardBaseMinHeight) target = Math.Min(target, usable);
                 }
@@ -3751,12 +4057,15 @@ public partial class MusicWizardWindow : Window
         }
         catch (Exception ex)
         {
+            // Never let a screen-geometry query stop the wizard from showing a step.
             RuntimeLog.Swallowed(ex);
         }
     }
 
     private bool IsPhase3LoopMusicEnabled()
     {
+        // COVER_01 — the `_isMergerMode &&` guard is gone. A single video whose song runs out
+        // needs looping for exactly the same reason a merged one does.
         return LoopMusicCheckBoxCtl?.IsChecked ?? false;
     }
 
@@ -3902,7 +4211,6 @@ public partial class MusicWizardWindow : Window
 
         if (forceReload || segmentChanged)
         {
-            await EnsureMusicBedGainAsync(segment.Path);
             await _audioIpcClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
             await _audioIpcClient.SendCommandAsync("loadfile", targetPath, "replace");
             _phase3PreviewMusicPath = targetPath;
@@ -3913,53 +4221,47 @@ public partial class MusicWizardWindow : Window
             await _audioIpcClient.SendCommandAsync("seek", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
         }
 
-        await _audioIpcClient.SetPreviewVolumeAsync(GetPreviewMusicVolume());
+        await _audioIpcClient.ApplyPreviewGainAsync(GetPreviewMusicBalance());
         ApplyPreviewMusicFilters();
         await _audioIpcClient.SetPropertyAsync("pause", "no");
     }
 
     /// <summary>
-    /// AUDIOPROT_01 â€” PUTS THE EQ CARVE ON THE PREVIEW MUSIC BUS SO THE CHECKBOX IS AUDIBLE.
-    ///
-    /// <para>
-    /// The wizard preview runs the music on its OWN audio-only mpv (<c>_audioIpcClient</c>) and, up
-    /// to now, set exactly one property on it: <c>volume</c>. No <c>af</c>, no lavfi, nothing. So
-    /// neither protection switch changed a single sample of what the user heard in phase 2 or phase
-    /// 3 â€” ticking or unticking them was inaudible BY CONSTRUCTION, which is the other half of the
-    /// "it does not respect the setting" report.
-    /// </para>
-    /// <para>
-    /// The carve is a STATIC EQ on the music bus, so it ports exactly. The string below is the
-    /// literal twin of the export's, in <c>AudioFilterChain.BuildMusicChain</c>:
-    /// <c>equalizer=f=2000:width_type=h:width=1800:g=-4</c>. âš ï¸ IF THAT ONE CHANGES, CHANGE THIS
-    /// ONE IN THE SAME COMMIT â€” a preview that carves by a different amount than the export is
-    /// worse than a preview that does not carve at all, because it is silently wrong instead of
-    /// visibly absent. It is wrapped in mpv's explicit <c>lavfi=[...]</c> bridge rather than passed
-    /// bare, so the syntax cannot be mistaken for one of mpv's own built-in af names.
-    /// </para>
-    /// <para>
-    /// DUCKING IS DELIBERATELY NOT HERE, AND CANNOT BE. The export ducks with
-    /// <c>sidechaincompress</c>, whose whole point is that the GAME bus is the trigger for the
-    /// MUSIC bus. In the wizard the two live in two separate mpv processes, so there is no path to
-    /// route one as a sidechain into the other. Do not "fix" that by inventing a static
-    /// approximation â€” a fake duck that does not follow the real gameplay peaks would misrepresent
-    /// the export rather than preview it.
-    /// </para>
+    /// DUCKMB_01 — the wizard's music player carries NO filter any more. The carve used to be a
+    /// static 2 kHz EQ that this window could copy; it is now DYNAMIC (a sidechain on the music's
+    /// speech band, triggered by the gameplay), like the ducking. Both need the gameplay as a live
+    /// sidechain input, which two separate players cannot provide, so a static stand-in here would
+    /// misrepresent the export. They are heard exactly in the Main App preview once the wizard
+    /// closes: it plays the export's own rendered mix (PREVIEWMIX_01).
     /// </summary>
     private void ApplyPreviewMusicFilters()
     {
         if (_audioIpcClient == null) return;
+        _ = _audioIpcClient.SetPropertyAsync("af", "");
+    }
 
-        bool carving = CarvingCheckBoxCtl?.IsChecked ?? true;
-        string af = carving
-            ? "lavfi=[equalizer=f=2000:width_type=h:width=1800:g=-4]"
-            : "";
-
-        _ = _audioIpcClient.SetPropertyAsync("af", af);
+    /// <summary>
+    /// DUCKSTRENGTH_01 — a helper switched OFF in Settings is shown unticked and greyed out here,
+    /// with a tooltip that says where to turn it back on (a silently ignored tick reads as a bug).
+    /// </summary>
+    private void ApplyMixSwitchesFromSettings()
+    {
+        var d = Infrastructure.SettingsManager.Instance.Defaults;
+        void Apply(CheckBox? cb, bool enabled)
+        {
+            if (cb == null || enabled) return;
+            cb.IsChecked = false;
+            cb.IsEnabled = false;
+            ToolTip.SetTip(cb, "Turned off in Settings › Sound & Music › Music vs. game sound.");
+        }
+        Apply(DuckingCheckBoxCtl, d.DuckingEnabled);
+        Apply(CarvingCheckBoxCtl, d.CarvingEnabled);
     }
 
     private void UpdatePreviewControlsState()
     {
+        // PREVIEW1_01 — phase 1 was excluded here, which is what made the transport bar look
+        // permanently broken on the first screen you land on.
         bool enabled = _selectedTrack != null && (_currentStep == 1 || _currentStep == 2 || (_currentStep == 3 && _phase3Ready));
         foreach (string name in new[] { "PlayBtn", "SkipBackBtn", "SkipForwardBtn" })
         {
@@ -3971,133 +4273,38 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// AUDIO_09 â€” kept as a no-op rather than deleted, because it had FOUR call sites scattered
+    /// AUDIO_09 — kept as a no-op rather than deleted, because it had FOUR call sites scattered
     /// through the wizard's state-refresh paths (502, 900, 1030, 1542). Removing the method would
     /// have meant touching all four in a change that is otherwise about layout, and each is on a
     /// different refresh trigger. The button it used to drive now lives in Settings as
     /// `AudioProtection`, so there is nothing left to update here.
-    /// âš ï¸ If you are cleaning up: delete this AND its four call sites together, or not at all.
+    /// ⚠️ If you are cleaning up: delete this AND its four call sites together, or not at all.
     /// </summary>
     private void UpdateDuckingCompareButton()
     {
     }
 
-    private double GetPreviewVideoVolume(double? masterVolume = null)
-    {
-        double videoVolume = VideoVolSliderCtl?.Value ?? 100.0;
-        double master = masterVolume ?? FreeVideoStudio.Core.Media.MpvIpcClient.GlobalMasterVolume;
-        videoVolume = videoVolume * master / 100.0;
-
-        videoVolume *= DbToLinear(PreviewVideoAttenuationDb());
-
-        return Math.Clamp(videoVolume, 0.0, 100.0);
-    }
-
     /// <summary>
-    /// PREVIEW_04 â€” the raw integrated loudness of the gameplay clip, supplied by the Main App
-    /// (its `_sourceMeasuredLufs`). Null when it could not be measured; the preview then leaves
-    /// both sides alone, exactly as before.
+    /// VOLCURVE_01 — the VIDEO fader as a LINEAR gain (what the export's `main_vol` applies). The
+    /// suite master (level, mute, perceptual curve) is applied on top by
+    /// <see cref="FreeVideoStudio.Core.Media.MpvIpcClient.ApplyPreviewGainAsync"/>.
     /// </summary>
-    public double? SourceMeasuredLufs { get; set; }
+    private double GetPreviewVideoBalance() =>
+        Math.Clamp((VideoVolSliderCtl?.Value ?? 100.0) / 100.0, 0.0, 1.0);
 
-    /// <summary>
-    /// PREVIEW_04 â€” where the EXPORT will put the game bus. Set to
-    /// <see cref="FreeVideoStudio.Core.Media.AudioLoudnessProbe.TargetLufs"/> when loudness
-    /// normalisation will run, and left null when the game bus is exported untouched.
-    /// </summary>
-    public double? GameBusTargetLufs { get; set; }
+    // LOUDSTD_REMOVED_01 — PREVIEW_04's balance correction (SourceMeasuredLufs, GameBusTargetLufs,
+    // EnsureMusicBedGainAsync) compensated for a -14 LUFS normalisation the export no longer does.
+    // Its measurement ran an ffmpeg pass per song and its result was already hard-wired to 0 dB. Both
+    // buses export at their recorded level times their fader, which is exactly what plays here.
 
-    /// <summary>Measured integrated loudness of each music SEGMENT, keyed by file path.</summary>
-    private readonly System.Collections.Generic.Dictionary<string, double> _musicSegmentLufs =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// PREVIEW_04 â€” HOW MUCH THE MUSIC MUST MOVE, IN dB, FOR THIS PREVIEW TO SOUND LIKE THE EXPORT.
-    ///
-    /// This window plays both files RAW through mpv at nothing but the slider value, while the
-    /// export pins the game bus to TargetLufs and the music bed to MusicBedLufs. Commercial masters
-    /// sit around -8 to -10 LUFS and a gameplay capture around -20 to -25, so the untouched preview
-    /// puts the music 10-15 dB above the game â€” and the user, hearing that, pulls the music slider
-    /// down to fix a problem that only exists here. The exported file then has music far below
-    /// where they wanted it. This is the same fault PREVIEW_03 documents for the voice-over window.
-    ///
-    ///   export delta (music - game) = MusicBedLufs - (GameBusTargetLufs ?? rawGame)
-    ///   preview delta if untouched  = rawMusic - rawGame
-    ///   correction                  = export delta - preview delta
-    ///
-    /// Returns 0 when either side could not be measured, which restores the old behaviour exactly.
-    /// </summary>
-    private double PreviewMusicBalanceDb() => 0.0;
-
-    /// <summary>
-    /// PREVIEW_04 â€” the correction is applied by ATTENUATING ONE SIDE, NEVER BOOSTING EITHER.
-    /// mpv's volume property is a 0-100 percentage, so "turn the music up 12 dB" is not available
-    /// above 100 and would clip if it were. Only the RELATIVE distance matters for judging a mix,
-    /// so a positive correction is applied as a cut to the VIDEO instead of a lift to the music.
-    /// </summary>
-    private double PreviewMusicAttenuationDb() => Math.Min(0.0, PreviewMusicBalanceDb());
-
-    private double PreviewVideoAttenuationDb() => Math.Min(0.0, -PreviewMusicBalanceDb());
-
-    /// <summary>
-    /// PREVIEW_04 â€” measures the SEGMENT of the track that will actually play and caches it.
-    ///
-    /// Was a stub returning Task.CompletedTask, which is why the preview never matched the export.
-    /// Measures the same window the export's BEDSEG_01 measurement uses â€” from the chosen song
-    /// start, for as long as the video runs â€” so the two agree. Failures leave the gain at 0 dB,
-    /// i.e. exactly the old behaviour: this must never block or slow the preview.
-    /// </summary>
-    private async Task EnsureMusicBedGainAsync(string musicPath)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(musicPath) || !File.Exists(musicPath)) return;
-            if (_musicSegmentLufs.ContainsKey(musicPath)) return;
-
-            bool isSelected = string.Equals(musicPath, _selectedTrack?.FilePath, StringComparison.OrdinalIgnoreCase);
-            double startSec = isSelected ? Math.Max(0.0, _songStartSeconds) : 0.0;
-
-            double videoDur = GetPhase3VideoDurationSeconds();
-            double trackDur = isSelected && _selectedTrack != null ? _selectedTrack.DurationSec : 0.0;
-            double available = trackDur > 0 ? Math.Max(0.0, trackDur - startSec) : videoDur;
-            double window = videoDur > 0 ? Math.Min(videoDur, available) : available;
-
-            string ffmpeg = BinaryPathResolver.Resolve("ffmpeg.exe", "backend", "binaries");
-
-            var reading = await FreeVideoStudio.Core.Media.AudioLoudnessProbe
-                .MeasureAsync(ffmpeg, musicPath, CancellationToken.None,
-                              segmentStartSec: startSec,
-                              segmentDurationSec: window)
-                .ConfigureAwait(true);
-
-            if (reading == null) return;
-
-            _musicSegmentLufs[musicPath] = reading.IntegratedLufs;
-            RuntimeLog.Info("MUSIC_WIZARD",
-                $"PREVIEW LEVEL MATCH: '{Path.GetFileName(musicPath)}' segment {startSec:F1}s +{window:F1}s " +
-                $"measured {reading.IntegratedLufs:F2} LUFS. Music {PreviewMusicAttenuationDb():F2} dB / " +
-                $"video {PreviewVideoAttenuationDb():F2} dB applied to the preview only.");
-        }
-        catch (Exception ex) { RuntimeLog.Swallowed(ex); }
-    }
-
-    private double GetPreviewMusicVolume(double? masterVolume = null)
-    {
-        double musicVolume = MusicVolSliderCtl?.Value ?? 100.0;
-        double master = masterVolume ?? FreeVideoStudio.Core.Media.MpvIpcClient.GlobalMasterVolume;
-        musicVolume = musicVolume * master / 100.0;
-
-        musicVolume *= DbToLinear(PreviewMusicAttenuationDb());
-
-        musicVolume *= CurrentPreviewFadeFactor();
-
-        return Math.Clamp(musicVolume, 0.0, 100.0);
-    }
+    /// <summary>VOLCURVE_01 — the MUSIC fader as a LINEAR gain, times the PREVIEW1_01 ease-in.</summary>
+    private double GetPreviewMusicBalance() =>
+        Math.Clamp((MusicVolSliderCtl?.Value ?? 100.0) / 100.0 * CurrentPreviewFadeFactor(), 0.0, 1.0);
 
     private void ApplyPreviewMusicVolume()
     {
         if (_audioIpcClient == null) return;
-        _ = _audioIpcClient.SetPreviewVolumeAsync(GetPreviewMusicVolume());
+        _ = _audioIpcClient.ApplyPreviewGainAsync(GetPreviewMusicBalance());
     }
 
     private void UpdateProblemFlags()
@@ -4120,6 +4327,7 @@ public partial class MusicWizardWindow : Window
         double videoDuration = GetPhase3VideoDurationSeconds();
         double coverage = GetQueuedMusicCoverageSeconds();
         bool loopEnabled = IsPhase3LoopMusicEnabled();
+        // COVER_01 — this line used to be the END of the story. Now it is a button.
         if (!loopEnabled && videoDuration > 0.1 && coverage < videoDuration - 0.5)
             flags.Add($"Music ends {FormatSeconds(videoDuration - coverage)} before the video ends. Click here to fix it.");
 
@@ -4148,6 +4356,7 @@ public partial class MusicWizardWindow : Window
         panel.IsVisible = _currentStep == 3 && flags.Count > 0;
         text.Text = string.Join(Environment.NewLine, flags.Select(flag => $"WARNING: {flag}"));
 
+        // COVER_01 — only offer the hand cursor when there is actually something behind the click.
         bool clickable = GetMusicShortfallSeconds() > 0.0;
         panel.Cursor = new Avalonia.Input.Cursor(clickable
             ? Avalonia.Input.StandardCursorType.Hand
@@ -4158,7 +4367,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// LAYOUT_01 â€” the status line now COLLAPSES when it has nothing to say.
+    /// LAYOUT_01 — the status line now COLLAPSES when it has nothing to say.
     ///
     /// It used to be a permanent row in the header stack, holding a full line of height open on a
     /// screen whose only elastic row is the video. It is empty the overwhelming majority of the
@@ -4171,6 +4380,8 @@ public partial class MusicWizardWindow : Window
         status.Text = message;
         status.IsVisible = !string.IsNullOrWhiteSpace(message);
     }
+// PEAKMATH_01 — FormatSeconds moved verbatim; see the extracted type.
+// PEAKMATH_01 — DeleteTempFile moved verbatim; see the extracted type.
 
     private void TogglePreview()
     {
@@ -4184,7 +4395,7 @@ public partial class MusicWizardWindow : Window
 
         {
 
-            ShowToast("âš  Select a track first to preview!");
+            ShowToast("⚠ Select a track first to preview!");
             return;
         }
 
@@ -4194,6 +4405,10 @@ public partial class MusicWizardWindow : Window
             return;
         }
 
+        // PREVIEW1_01 — on the song list, PLAY means "play me this song, from the top". The
+        // automatic preview that starts when you highlight a row is a different thing: it drops
+        // you into the busiest part and eases in. Once you have skipped, PLAY resumes instead of
+        // yanking you back to the beginning.
         double startOffset = (_currentStep == 1 && !_phase1UserSeeked) ? 0.0 : _previewCurrentOffset;
 
         StartPreviewInternal(startOffset);
@@ -4215,7 +4430,7 @@ public partial class MusicWizardWindow : Window
         }
         else
         {
-            if (_currentStep == 1) _phase1UserSeeked = true;
+            if (_currentStep == 1) _phase1UserSeeked = true;   // PREVIEW1_01
             _previewCurrentOffset += offsetSeconds;
             if (_previewCurrentOffset < 0) _previewCurrentOffset = 0;
             if (_previewCurrentOffset > _selectedTrack.DurationSec) _previewCurrentOffset = _selectedTrack.DurationSec;
@@ -4230,6 +4445,8 @@ public partial class MusicWizardWindow : Window
     private async void StartPreviewInternal(double startOffset, bool fadeIn = false)
 
     {
+        // PREVIEW1_01 — the ease-in is a volume ramp rather than an `afade` filter, because `af`
+        // on this player is already owned by the carving preview and the two would fight.
         _previewFadeStartUtc = fadeIn ? DateTime.UtcNow : null;
 
         var playBtn = PlayBtnCtl;
@@ -4276,6 +4493,8 @@ public partial class MusicWizardWindow : Window
             if (audioClient == null)
                 return;
 
+            // PREVIEW1_01 — `_trackDuration` is only probed on the way OUT of phase 1, so on the
+            // song list it is still 0 and this clamp used to force every phase-1 preview to 0:00.
             double clampLimit = _trackDuration > 0 ? _trackDuration : (_selectedTrack?.DurationSec ?? 0);
             double audioStartOffset = clampLimit > 0 ? Math.Clamp(startOffset, 0, clampLimit) : Math.Max(0, startOffset);
             if (_currentStep == 3)
@@ -4287,7 +4506,6 @@ public partial class MusicWizardWindow : Window
             string targetPath = _selectedTrack!.FilePath.Replace("\\", "/");
             if (_lastLoadedTrackPath != targetPath)
             {
-                await EnsureMusicBedGainAsync(_selectedTrack!.FilePath);
                 await audioClient.SetPropertyAsync("start", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 await audioClient.SendCommandAsync("loadfile", targetPath, "replace");
                 _lastLoadedTrackPath = targetPath;
@@ -4297,14 +4515,14 @@ public partial class MusicWizardWindow : Window
                 await audioClient.SendCommandAsync("seek", audioStartOffset.ToString(System.Globalization.CultureInfo.InvariantCulture), "absolute");
             }
 
-            await audioClient.SetPreviewVolumeAsync(GetPreviewMusicVolume());
+            await audioClient.ApplyPreviewGainAsync(GetPreviewMusicBalance());
             ApplyPreviewMusicFilters();
             await audioClient.SetPropertyAsync("pause", "no");
         }
         catch (Exception ex)
         {
             RuntimeLog.Fail("MUSIC_WIZARD", $"Preview failed: {ex.GetType().Name} - {ex.Message}\n{ex.StackTrace}");
-            ShowToast($"âš  Preview playback failed: {ex.Message}");
+            ShowToast($"⚠ Preview playback failed: {ex.Message}");
         }
     }
 
@@ -4328,7 +4546,7 @@ public partial class MusicWizardWindow : Window
         }
 
         _isPreviewPlaying = false;
-        _previewFadeStartUtc = null;
+        _previewFadeStartUtc = null;   // PREVIEW1_01 — a stopped preview has no fade in progress
         _phase3PreviewMusicPath = null;
         _phase3PreviewMusicSegmentStartSec = double.NaN;
 
@@ -4370,13 +4588,13 @@ public partial class MusicWizardWindow : Window
         }
     }
 
-    /// <summary>RESUME_01 â€” true while a step-2 waveform render is in flight.</summary>
+    /// <summary>RESUME_01 — true while a step-2 waveform render is in flight.</summary>
     private bool _waveformRenderInFlight;
 
     /// <summary>
-    /// RESUME_01 â€” step 2 is reachable by going FORWARD from the song list and by going BACK from
+    /// RESUME_01 — step 2 is reachable by going FORWARD from the song list and by going BACK from
     /// step 3, and only the forward route ever rendered the waveform. Reopening with EDIT MUSIC
-    /// lands on step 3, so Back was the FIRST time that user saw step 2 â€” with nothing in it.
+    /// lands on step 3, so Back was the FIRST time that user saw step 2 — with nothing in it.
     ///
     /// Rather than add a second render call to the Back handler and wait for the third route to
     /// appear, this asks the only question that matters wherever step 2 becomes current: is a song
@@ -4391,7 +4609,7 @@ public partial class MusicWizardWindow : Window
         if (waveformImage == null || waveformImage.Source != null) return;
 
         RuntimeLog.Info("MUSIC_WIZARD",
-            $"Step 2 has no waveform for '{Path.GetFileName(_selectedTrack.FilePath)}' â€” rendering it now.");
+            $"Step 2 has no waveform for '{Path.GetFileName(_selectedTrack.FilePath)}' — rendering it now.");
         _ = RenderWaveformAsync(_selectedTrack.FilePath);
     }
 
@@ -4618,6 +4836,8 @@ public partial class MusicWizardWindow : Window
             }
         }
     }
+// MWDRAW_01 — AddLaneBoundary moved verbatim; see the extracted type.
+// MWDRAW_01 — EnsurePlayheadLine moved verbatim; see the extracted type.
 
     private void UpdatePlayhead()
 
@@ -4658,6 +4878,7 @@ public partial class MusicWizardWindow : Window
         EnsurePlayheadLine(
             canvas,
             ref _waveformPlayheadLine,
+            // TONE_01: the playhead is the app's red, not raw #FF0000.
             Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red),
             dashed: false);
         _waveformPlayheadLine!.StartPoint = new Avalonia.Point(playheadXPos, 0);
@@ -4672,7 +4893,7 @@ public partial class MusicWizardWindow : Window
             EnsurePlayheadLine(
                 timelineCanvas,
                 ref _timelinePlayheadLine,
-                Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red),
+                Infrastructure.ThemeResources.Brush(this, "AppDangerBrush", Avalonia.Media.Brushes.Red),   // TONE_01
                 dashed: false);
             _timelinePlayheadLine!.StartPoint = new Avalonia.Point(txPos, 0);
             _timelinePlayheadLine.EndPoint = new Avalonia.Point(txPos, timelineCanvas.Bounds.Height);
@@ -4809,7 +5030,7 @@ public partial class MusicWizardWindow : Window
 
             _ = ProbeTrackInfoAsync(track);
 
-            ShowToastSuccess("âœ” Music file loaded!");
+            ShowToastSuccess("✔ Music file loaded!");
         }
         else
         {
@@ -4877,7 +5098,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// ISSUE_10 + ISSUE_11 â€” downloads the shared song library into the folder the wizard is
+    /// ISSUE_10 + ISSUE_11 — downloads the shared song library into the folder the wizard is
     /// currently browsing, with live progress and a working CANCEL, then rescans so the new
     /// tracks appear immediately.
     /// </summary>
@@ -4913,7 +5134,7 @@ public partial class MusicWizardWindow : Window
     }
 
     /// <summary>
-    /// ISSUE_10 â€” the folder the wizard is currently browsing: the user's saved custom music
+    /// ISSUE_10 — the folder the wizard is currently browsing: the user's saved custom music
     /// folder if set and present, otherwise the shell Music folder.
     /// </summary>
     private string ResolveCurrentMusicDirectory()
@@ -5026,7 +5247,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (OperationCanceledException swallowed10)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed10);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed10);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
         {
@@ -5087,7 +5308,7 @@ public partial class MusicWizardWindow : Window
                 }
                 else
                 {
-                    durationText = "â€”";
+                    durationText = "—";
                 }
 
                 Dispatcher.UIThread.Post(() =>
@@ -5127,7 +5348,7 @@ public partial class MusicWizardWindow : Window
         }
         catch (OperationCanceledException swallowed4)
         {
-            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);
+            global::FreeVideoStudio.App.RuntimeLog.Swallowed(swallowed4);   // FAULTTIER_02 — no failure is silent.
         }
         catch (Exception ex)
 
@@ -5135,32 +5356,32 @@ public partial class MusicWizardWindow : Window
 
             RuntimeLog.Fail("MUSIC_WIZARD", $"Failed to probe {item.Name}: {ex.Message}");
 
-            Dispatcher.UIThread.Post(() => item.DurationText = "â€”");
+            Dispatcher.UIThread.Post(() => item.DurationText = "—");
         }
     }
 
     /// <summary>
-    /// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    /// ISSUE_09 â€” THIS WAS 95 LINES OF HAND-ROLLED TOAST. IT IS NOW ONE LINE.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
+    /// ISSUE_09 — THIS WAS 95 LINES OF HAND-ROLLED TOAST. IT IS NOW ONE LINE.
     ///
     /// The old body built a Border by hand, hunted for `Step1Panel`'s parent to host it, computed a
     /// ZIndex from its siblings, then hand-animated opacity in a `for` loop with `await Task.Delay(16)`
-    /// â€” twice. It slid in from the TOP of the wizard while every other screen in the suite put its
+    /// — twice. It slid in from the TOP of the wizard while every other screen in the suite put its
     /// feedback somewhere else entirely, and it had TWO early `return`s (one if `Step1Panel` was not
     /// found, one if its parent was not a Panel) that made the message vanish silently rather than
     /// show up somewhere imperfect. A user who pressed a button and saw nothing had no way to tell a
     /// no-op from a lost message.
     ///
-    /// Every one of the 13 call sites is unchanged â€” they still call ShowToast(text). What changed is
+    /// Every one of the 13 call sites is unchanged — they still call ShowToast(text). What changed is
     /// that they now produce the SAME float-up-and-fade notice as the Main App, the Speed Editor, the
     /// Merger, the Crop Tools and the Voice Over recorder.
-    /// âš ï¸ Do not reintroduce a bespoke toast here. See Controls/FloatingNotice.cs.
-    /// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    /// ⚠️ Do not reintroduce a bespoke toast here. See Controls/FloatingNotice.cs.
+    /// ══════════════════════════════════════════════════════════════════════════════════════════
     /// </summary>
     private void ShowToast(string message)
         => Controls.FloatingNotice.Show(this, message);
 
-    /// <summary>ISSUE_09 â€” the same notice in the "that worked" colour.</summary>
+    /// <summary>ISSUE_09 — the same notice in the "that worked" colour.</summary>
     private void ShowToastSuccess(string message)
         => Controls.FloatingNotice.Success(this, message);
 

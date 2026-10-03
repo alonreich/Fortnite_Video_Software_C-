@@ -1,4 +1,4 @@
-# SYMBOL & FILE INDEX (routing lookup)
+﻿# SYMBOL & FILE INDEX (routing lookup)
 
 Flat lookup. Grep for a filename, symbol, constant or engineering tag; read ONLY the spec it names.
 Notation: `03 §9 FFM-BINPATH` = `03_FFMPEG_EXPORT_PIPELINE.md`, section 9, stable anchor `FFM-BINPATH`.
@@ -22,10 +22,15 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   AppDataPaths.cs                            05 SYS-REBRAND
   AppDataPathsTests.cs                       05 SYS-REBRAND
   LegacyAppDataNames.txt                     05 SYS-REBRAND
+  LegacyResidueSweep.cs                      05 SYS-REBRAND-SWEEP
+  RebrandTests.cs                            05 SYS-REBRAND-SWEEP | 03 FFM-OUTNAME
+  REBRAND_MIGRATION.md                       rebrand record (REBRAND)
 ⚠ ApplicationPaths.cs                        05 GOV
 ⚠ AtomicJsonFile.cs                          05 06
   AudioFilterChain.cs                        02
   AudioLoudnessProbe.cs                      02
+  AudioTempoFilterBuilder.cs                 03
+  CornerMemeOverlayGraph.cs                  03
   AvaloniaApp.axaml                          04
 ⚠ Build.cmd                                  05 09 GOV
   dev_build.cmd                              05 09 GOV
@@ -60,7 +65,20 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ MainWindow.axaml.cs                        01 02 04 GOV
   MaskOverlayManager.cs                      05
 ⚠ MemeLoudness.cs                            02 03
+⚠ MasterVolumeUi.cs                          02 04
+⚠ MixProtectionViewModel.cs                  02 04
+⚠ AudioGraphPruner.cs                        02 03
+  PeakSafety.cs                              02
+  WindowsAudioSessionSync.cs                 02
+⚠ MainWindow.PreviewMix.cs                   01 02
   MemePreviewDirector.cs                     03
+⚠ MemePlacement.cs                           01 03
+  MemePresentationJson.cs                    06
+⚠ MemeChoiceViewModel.cs                     04 01
+⚠ CornerMemeOverlayPresenter.cs              04 03
+⚠ GranularSpeedEditorWindow.Memes.cs         01 04 07
+⚠ MainWindow.CornerMemes.cs                  01 04
+⚠ VideoMergerWindow.CornerMemes.cs           01 04
 ⚠ MergeClipGraph.cs                          01 03
 ⚠ MergeEditorBridge.cs                       01 03
 ⚠ MergeEdl.cs                                01 03 06
@@ -77,6 +95,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
 ⚠ MusicWizardWindow.axaml.cs                 01 02
 ⚠ OutputTimeline.cs                          01 06
   OutputFileSize.cs                          03
+  OutputFileNaming.cs                        03 FFM-OUTNAME
   OutputSizeEstimator.cs                     03
 ⚠ PhoneFrameMockup.axaml.cs                  01 04
   ExportViewModel.cs                         03
@@ -88,6 +107,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   RuntimeLog.cs                              05
   SettingsWindow.axaml.cs                    04
   SettingsWindow.AiTracking.cs               04
+  SettingsWindow.Output.cs                   04 UI-SETTINGS-ABOUT | 03 FFM-OUTNAME
   SpinningWheelSlider.cs                     04
   TextOverlayGenerator.cs                    03
   TimelineKnob.cs                            01
@@ -130,7 +150,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   UserFacingFaultSink.cs                     08
   ArchitectureRuleTests.cs                   08
 ⚠ CodeSigning.cs                             05 08
-  SettingsManager.cs                         05 (SETTX_01: all settings mutation via Update)
+  SettingsManager.cs                         05 (SETTX_01/SETTX_02: all settings mutation via one Update transaction)
   HardwareTelemetrySampler.cs                04
   AuthenticodeVerifier.cs                    05
   FreeVideoStudio.App.csproj           06 (AOTSAFETY_01) | 05 §5 SYS-SIGNING
@@ -146,6 +166,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   .github/workflows/lfs-guard.yml            09
 ⚠ UpdateService.cs                           05 09
   Staging.cs                                 09
+  GitHubReleasePublisher.cs                  09 DIST-SPLIT
 ⚠ GranularSpeedEditorWindow.History.cs       04 07
 ⚠ MainWindow.Controls.cs                     01 02 04 GOV
   GranularSpeedEditorWindow.Controls.cs      04
@@ -186,7 +207,7 @@ Section NUMBERS shift as specs grow. The `{#ANCHOR}` ids are STABLE — quote an
   MemeAssets.cs                              03
   MemeCatalog.cs                             03
   MemePickerWindow.axaml                     04
-  MemeWallControl.axaml                      04
+  MemeThumbnailCache.cs                      04
   NamedPipeStateClient.cs                    05
   PreviewDetachController.cs                 04
   PreviewMonitorWindow.axaml                 04
@@ -210,7 +231,7 @@ MERGEQUALITY_01                              03 FFM-SIZEESTIMATE
 MERGESIZE_01                                 03 FFM-SIZEESTIMATE
 MEMELEVEL_01                                 03 §12 FFM-SCRAPER
 CLIPFRAMES_01                                03 §12 FFM-SCRAPER | 02 §5 AUD-CONCAT
-MemeLoudness                                 03 §12 FFM-SCRAPER
+MemeLoudness                                 02 §2 AUD-MASTERING | 03 §12 FFM-SCRAPER
 CANCELREG_01                                 03 §8b FFM-EXPORTLIFETIME
 EXPORTSESSION_01                             03 §8b FFM-EXPORTLIFETIME
 FLUSHCEILING_01                              05 §4d SYS-IPCLIFETIME
@@ -222,6 +243,9 @@ ImportedImageSlot                            04 §7b UI-GPUSLOT
 IPCLEASE_01                                  05 §4d SYS-IPCLIFETIME
 IPCTEARDOWN_01                               05 §4d SYS-IPCLIFETIME
 OUTPATH_01                                   03 §8b FFM-EXPORTLIFETIME
+OUTNAME_01                                   03 §8c FFM-OUTNAME | 04 §11 UI-SETTINGS-ABOUT
+MainOutputBaseName                           03 §8c FFM-OUTNAME
+MergerOutputBaseName                         03 §8c FFM-OUTNAME
 PIPEDRAIN_01                                 03 §8b FFM-EXPORTLIFETIME
 PROCGATE_01                                  03 §8b FFM-EXPORTLIFETIME
 PROCGATE_02                                  03 §8b FFM-EXPORTLIFETIME
@@ -264,7 +288,26 @@ BillableSeconds                              03 §8a FFM-QUALITY
 BlockingCollection<string>                   05 §2 SYS-LOGGING
 BubbleCount                                  04 §7 UI-BORDERLESS  [= 35]
 Build                                        01 §1 TL-PORTRAIT | 03 (mini-map only) | 05 §5 SYS-SIGNING
-BuildAtempoChain                             03 (mini-map only)
+BuildAtempoChain                             03 §3a FFM-TEMPO
+AudioTempoFilterBuilder                      03 §3a FFM-TEMPO
+AudioTempoEngine                             03 §3a FFM-TEMPO
+TEMPO_01                                     03 §3a FFM-TEMPO
+MEMEMODE_01                                  01 §7 TL-MEME | 03 §4a FFM-MEMECORNER | 04 §10 UI-MEMESELECT | 06 §8 | 07 §5
+MemePresentationMode                         01 §7 TL-MEME
+MemeOverlayCorner                            01 §7 TL-MEME  [default BottomRight]
+MemeOverlaySize                              01 §7 TL-MEME  [default Medium]
+MemeOverlayLayout                            03 §4a FFM-MEMECORNER
+VisibleInterval                              01 §7 TL-MEME
+OutputDurationSec                            01 §7 TL-MEME
+CornerMemeOverlayGraph                       03 §4a FFM-MEMECORNER
+CornerOverlays                               01 §7 TL-MEME  [MergerPreviewPlan]
+GameplaySecAt                                01 §7 TL-MEME  [MergerPreviewPlan]
+MemeChoiceViewModel                          04 §10 UI-MEMESELECT
+CornerMemeOverlayPresenter                   04 §10 UI-MEMESELECT
+MemePresentationJson                         06 §8
+RubberbandOptions                            03 §3a FFM-TEMPO  [= transients=mixed]
+EnsureProbedAsync                            03 §3a FFM-TEMPO
+HelpListsRequiredOptions                     03 §3a FFM-TEMPO
 CalculateEffectiveDurationMs                 03 §8a FFM-QUALITY
 CalculateFreezeOutputMs                      03 §8a FFM-QUALITY
 CanvasMath                                   01 (mini-map only)
@@ -385,7 +428,6 @@ QualityLabel                                 04 §4 UI-SAFEGUARDS
 QualityLadder                                03 §8a FFM-QUALITY
 QualitySliderValue                           03 §8a FFM-QUALITY
 QuantizeItemSize                             01 §1 TL-PORTRAIT
-QuietBoostReductionFactor                    02 §2 AUD-MASTERING  [= 0.70]
 ReadInt                                      05 (mini-map only)
 ReadObject                                   05 (mini-map only)
 ReadString                                   06   [code-only: ProjectSerializer.cs]
@@ -408,10 +450,11 @@ SampleRate                                   04 (mini-map only)  [= 4000, Wavefo
 SaveBoundsSync                               04 (mini-map only) | 05 (mini-map only)
 SaveRecoveryState                            02 (mini-map only) | 05 SYS-EDITHOT | 07 §6 UNDO-EQUALITY
 SaveState                                    05 (mini-map only)
-CurrentSchemaVersion                         05 (mini-map only)  [= 10, SettingsManager]
+CurrentSchemaVersion                         05 (mini-map only)  [= 13, SettingsManager]
 SEAM_01                                      01 §3 TL-MARKERS | 04 §6 UI-GRANULAR
 SEEKSTORM_01                                 04 §6 UI-GRANULAR
 SETTX_01                                     05 §4c (settings transaction API — Update/SetAutoUpdateChecks; mutation guard)
+SETTX_02                                     05 §4c (one named-mutex acquisition spans read-modify-write; lock order; unknown/future settings preserved)
 SegDragMode                                  01 (mini-map only)
 SelectSegment                                01 (mini-map only)
 SerializeState                               05 (mini-map only)
@@ -432,7 +475,6 @@ StopRecording                                02 (mini-map only)
 SurvivingSourceWidth                         01 §1 TL-PORTRAIT  [= 720]   [formula term, not a code symbol]
 SYS-DEVBUILD                                 05 §4a SYS-DEVBUILD
 Tactile                                      04 §1 UI-THEME
-TargetLufs                                   02 (mini-map only)  [= -14.0]
 TargetMbFor                                  03 §8a FFM-QUALITY
 TextOverlayGenerator                         03 (mini-map only)
 THUMB_01                                     01 §9 TL-HITBOX
@@ -690,11 +732,48 @@ ReplaceCurrent                               07 (mini-map only) | 06 §8 PROJ-TO
 NextUndoLabel                                07 (mini-map only) | 07 §5 UNDO-TODO
 NextRedoLabel                                07 (mini-map only) | 07 §5 UNDO-TODO
 TimePosChanged                               02 §4 AUD-VOICEOVER
-MusicBedLufs                                 02 §2 AUD-MASTERING  [= TargetLufs = -14.0]
 DUCKOFF_01                                   02 §3 AUD-SIDECHAIN
 carving_enabled                              02 §3 AUD-SIDECHAIN
+DUCKMB_01                                    02 §3 AUD-SIDECHAIN
+DUCKSTRENGTH_01                              02 §3 AUD-SIDECHAIN
+RatioFor                                     02 §3 AUD-SIDECHAIN
+DefaultStrength                              02 §3 AUD-SIDECHAIN  [= 50]
+MixProtectionViewModel                       02 §3 AUD-SIDECHAIN
+DuckingStrength                              02 §3 AUD-SIDECHAIN
+CarvingStrength                              02 §3 AUD-SIDECHAIN
+CrossoverLowHz                               02 §3 AUD-SIDECHAIN  [= 250]
+CrossoverHighHz                              02 §3 AUD-SIDECHAIN  [= 2900]
+CarveRatio                                   02 §3 AUD-SIDECHAIN  [= 2.5]
+TunedRatio                                   02 §3 AUD-SIDECHAIN  [= 4.0]
+TunedThreshold                               02 §3 AUD-SIDECHAIN  [= 0.1]
+LOUDSTD_REMOVED_01                           02 §2 AUD-MASTERING
+PEAKSAFE_01                                  02 §2 AUD-MASTERING
+PeakSafety                                   02 §2 AUD-MASTERING
+SafetyCeilingDbtp                            02 §2 AUD-MASTERING  [= -2.0]
+SafetyLimiterLimitDb                         02 §2 AUD-MASTERING  [= -2.3]
+TamerHeadroomLu                              02 §2 AUD-MASTERING  [= 9.0]
+HasHarshPeaks                                02 §2 AUD-MASTERING
+MEMELEVEL_02                                 02 §2 AUD-MASTERING
+SPLICE_03                                    02 §2 AUD-MASTERING
+CLIPLEVEL_01                                 02 §2 AUD-MASTERING
+MergerMatchClipLoudness                      02 §2 AUD-MASTERING
+PREVIEWMIX_01                                02 §2b AUD-PREVIEWMIX
+VOPREVIEW_01                                 02 §2b AUD-PREVIEWMIX
+AudioGraphPruner                             02 §2b AUD-PREVIEWMIX
+AudioPreviewMap                              02 §2b AUD-PREVIEWMIX
+AudioPreviewOutputPath                       02 §2b AUD-PREVIEWMIX
+VOLSHARED_01                                 02 §1 AUD-MASTERVOL
+VOLMUTE_01                                   02 §1 AUD-MASTERVOL
+VOLCURVE_01                                  02 §1 AUD-MASTERVOL
+VOLSYNC_01                                   02 §1 AUD-MASTERVOL
+VOLWHEEL_01                                  02 §1 AUD-MASTERVOL
+PreviewMuted                                 02 §1 AUD-MASTERVOL
+PlayerMpvVolume                              02 §1 AUD-MASTERVOL
+ApplyPreviewGainAsync                        02 §1 AUD-MASTERVOL
+UISND_01                                     02 (mini-map only)
 VOPROT_01                                    02 §4 AUD-VOICEOVER
-AutoVoiceNormalization                       02 §4 AUD-VOICEOVER
+VOGATE_01                                    02 §4 AUD-VOICEOVER
+VOPRIO_01                                    02 §2b AUD-PREVIEWMIX | 02 §4 AUD-VOICEOVER
 granularTimeMapper                           02 §4 AUD-VOICEOVER
 StreamGeometry                               02 §4 AUD-VOICEOVER
 FITEND_01                                    02 §6 AUD-DIALOGS
@@ -782,4 +861,10 @@ TOOLRETURN_01                                05 §3 SYS-WINSTATE
 | :--- | :--- |
 | `FreeVideoStudio.sln`, application/core assembly identities, `FreeVideoStudio.App.update.zip` | `09` DIST-IDENTITY |
 | `REBRAND_01`, `AppDataDir`, `LocalCacheDir`, `MigrateDirectory`, `FvsFreeVideoStudioMutex` | `05` SYS-REBRAND |
+| `NOSPACE_01`, `LegacyInstallFolder`, `KnownDestinations`, `ReuseRoot`, `RetargetUserLinksAsync` | `05` SYS-NOSPACE |
+| `MEMEFOLDER_01`, `MEMEFOLDER_02`, `CloudMemeFolder`, `MemeCategory`, `MEMECAT_01`, `MEMESYNC_01`..`03`, `STARTERLIST_01`, `ResolveSavedFile` | `03` FFM-MEMELIB |
+| `MEMEPICK_01`, `MEMEPICK_02`, `MEMEWALL_01`, `MEMEMUSIC_01`, `MemeThumbnailCache` | `04` UI-MEMESELECT |
+| `REBRAND_02`, `LegacyResidueSweep`, `RunForCurrentUser`, `LegacyTempNames`, `LegacyStorageNames` | `05` SYS-REBRAND-SWEEP |
+| `REBRAND_03`, `GitHubReleasePublisher.ReleaseAssets`, previous-brand release alias | `09` DIST-SPLIT |
+| Old→new identity map, old-brand update flow, allow list | `REBRAND_MIGRATION.md` |
 | `ProductionNamespacesUseTheProductRoot` | `08` COMP-ARCHTEST |

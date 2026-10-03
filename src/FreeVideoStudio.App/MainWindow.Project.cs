@@ -1,6 +1,13 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Forbidden to modify without reading: docs/07_UNDO_AND_HISTORY.md
+// Forbidden to modify without reading: docs/08_APPLICATION_COMPOSITION.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
-using FreeVideoStudio.Core.Abstractions;
+using FreeVideoStudio.Core.Abstractions;   // IFaultSink + the Guard/Degraded/Fatal extensions
 using FreeVideoStudio.Core.Project;
 
 namespace FreeVideoStudio.App;
@@ -67,6 +74,11 @@ public partial class MainWindow
     {
         var services = Infrastructure.AppServices.Current;
 
+        // PROJ_11 — the merge queue is part of the document now, so restoring a document restores
+        // it. Done FIRST and outside the redraw guard: it is a data restore, not a repaint, and it
+        // must happen even if the timeline redraw below fails. Before this, opening a project left
+        // whatever queue happened to be in this process from the last time the Merger was used —
+        // so an opened project could silently inherit another project's clips.
         Services.ToolNavigator.RestoreMergeQueue(document.Merge);
 
         services.Faults.Guard("PROJECT",

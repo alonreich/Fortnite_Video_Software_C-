@@ -1,4 +1,7 @@
-﻿using System;
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// Forbidden to modify without reading: docs/04_UI_UX_AVALONIA_SPEC.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
@@ -7,6 +10,14 @@ using FreeVideoStudio.Core.Infrastructure;
 
 namespace FreeVideoStudio.Core.Media;
 
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// LANES_01 — THE MERGER'S FILMSTRIP AND WAVEFORM FILL IN LEFT→RIGHT, IN THE BACKGROUND (P5, D9).
+//
+// The planner cuts the merged timeline into one tile per clip (x span on the lane + that clip's
+// kept source window). The runner starts tiles strictly in that left→right order with bounded
+// parallelism, and a new run (queue changed, lane resized) cancels the old one, so stale work never
+// competes with current work. Both are pure/UI-free and unit-tested; the window only paints.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
 
 /// <summary>One clip as a lane sees it.</summary>
 public readonly record struct LaneClip(
@@ -129,7 +140,9 @@ public sealed class ProgressiveLaneRunner : IDisposable
             foreach (var item in items)
             {
                 await slots.WaitAsync(token).ConfigureAwait(false);
+                // A slot can be granted in the same instant the run is superseded: re-check.
                 if (token.IsCancellationRequested) { slots.Release(); break; }
+                // Invoked directly (not Task.Run) so every item's synchronous start runs in list order.
                 running.Add(RunOneAsync(item, work, generation, token, slots));
             }
         }

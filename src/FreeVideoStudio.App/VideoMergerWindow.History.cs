@@ -1,4 +1,10 @@
-﻿
+﻿// [SPEC CONTRACT] STRICT GOVERNANCE:
+// CO-GOVERNED FILE - bound by EVERY spec below simultaneously.
+// Reading one is NOT compliance (SPEC_GOVERNANCE.md section 2).
+// Forbidden to modify without reading: docs/01_TIMELINE_COORDINATE_MATH.md
+// Forbidden to modify without reading: docs/06_PROJECT_DOCUMENT_MODEL.md
+// Invariants, constants, and threading models must match spec bit-for-bit.
+
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -28,7 +34,7 @@ public partial class VideoMergerWindow
 {
     private readonly UndoStack<MergeEdl> _history = new(MergerSession.UserEdit(MergeEdl.Empty));
     private bool _applyingHistory;
-    private string? _nextHistoryLabel;
+    private string? _nextHistoryLabel;   // MERGEEDIT_02 — names the next recorded step (e.g. "granular edit")
     private bool _historyKeysHooked;
 
     private void InitializeHistory()
@@ -44,6 +50,7 @@ public partial class VideoMergerWindow
         var user = MergerSession.UserEdit(edl);
         if (_applyingHistory)
         {
+            // Re-reading the window right after an undo/redo: an equivalent form, never a new step.
             _history.ReplaceCurrent(user);
             return;
         }
@@ -66,7 +73,7 @@ public partial class VideoMergerWindow
         bool undo = e.Key == Key.Z && (e.KeyModifiers & KeyModifiers.Shift) == 0;
         bool redo = e.Key == Key.Y || (e.Key == Key.Z && (e.KeyModifiers & KeyModifiers.Shift) != 0);
         if (!undo && !redo) return;
-        if (FocusManager?.GetFocusedElement() is TextBox) return;
+        if (FocusManager?.GetFocusedElement() is TextBox) return;   // text fields keep their own undo
         e.Handled = true;
         _ = StepHistoryAsync(undo);
     }
@@ -78,7 +85,7 @@ public partial class VideoMergerWindow
             Controls.FloatingNotice.Show(this, "Undo is paused while the merge is running.", Controls.NoticeKind.Info);
             return;
         }
-        CaptureEdlNow(flush: false);
+        CaptureEdlNow(flush: false);   // anything pending becomes a step first, so undo removes the LATEST edit
         string? label = undo ? _history.NextUndoLabel : _history.NextRedoLabel;
         MergeEdl? target = undo ? _history.Undo() : _history.Redo();
         if (target is null || label is null)
@@ -116,6 +123,7 @@ public partial class VideoMergerWindow
         {
             if (_scraperEnabled != target.ScraperEnabled)
             {
+                // Session value only: restoring or undoing must not rewrite the user's global setting.
                 _scraperEnabled = target.ScraperEnabled;
                 var cb = ScraperCheckBoxCtl;
                 if (cb != null)
@@ -131,14 +139,18 @@ public partial class VideoMergerWindow
             _thumbPath = thumbClip?.Path;
             _thumbSourceSec = thumbClip != null && target.Thumbnail is EdlThumbnail t2 ? t2.At.SourceUs / 1_000_000.0 : 0;
 
+            // Music is dropped BEFORE the queue changes (else the queue events flag it "stale" and
+            // warn the user), then re-derived from its clip anchors below.
             _musicResult = null;
             _musicTimeline = null;
             _musicIsStale = false;
             _musicQueueSignature = "";
 
             MergerSession.SyncQueue(VideoQueue, _clipIds, target.Clips);
-            _lastEdl = target;
+            _lastEdl = target;   // carries per-clip effects / windows forward into the next capture
 
+            // Music is re-derived from its clip anchors EVERY time: after an undone reorder the same
+            // anchors sit at different merged seconds, and the music must follow its clip moments.
             {
                 if (target.Music is EdlMusic music)
                 {
